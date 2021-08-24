@@ -1,0 +1,213 @@
+---
+title: "process MRI"
+author: "Vanessa Dumeaux"
+date: "1/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{bash}
+conda activate dcm2bids
+cd /home/data/refned/microbiom2brain/MRI/bids_dataset #return error message but still create 3 folders source data derivatives and code
+# environment.yml for conda encironment in code folder
+# add README CHANGES participants.json participants.tsv and dataset_description.json at the root to bids folder
+# create raw data folder
+
+```
+
+Convert dicom into .nii and .json files for help in making dcm2_bids_config.json file
+
+```{r}
+library(R.utils)
+library(BiocParallel)
+
+ncores <- 5
+register(MulticoreParam(workers=ncores))
+
+
+
+# conda activate dcm2bids
+rawdir <- "/home/data/raw/microbiome2brain/MRI/DICOM2"
+datdir <- "/home/data/refined/microbiome2brain/MRI/bids_dataset"
+
+dcm <- list.dirs(rawdir, full.names = TRUE, recursive = FALSE)
+
+sn <- unlist(lapply(strsplit(dcm, "/"), "[", 8))
+
+dcm2bids.help <- function(x){
+  system(capture.output(
+  cat("dcm2bids_helper -d", dcm[x], "-o", paste0(datdir, "/tmp_dcm2bids/", sn[x]))
+  ))
+}
+
+bplapply(seq_along(sn), dcm2bids.help)
+
+```
+```{bash}
+conda activate dcm2bids
+
+cd /home/data/refined/microbiome2brain/MRI/bids_dataset2
+
+dcm2bids -d ./sourcedata/{participant-dicom-folders} -p {participant-id} -s {session-nb} -c ./code/dcm2bids_config.json --forceDcm2niix
+```
+
+```{r}
+#install.packages("rprime")
+library(rprime)
+
+files <- list.files("/home/data/refined/microbiome2brain/MRI/bids_dataset/sourcedata/eprime", pattern = ".txt", full.names = TRUE)
+
+sn.eprime <- unlist(lapply(strsplit(files, "/"), "[", 10))
+sn.eprime <- gsub("Block_Micro_fMRI-|.txt|N15200|R15200","", sn.eprime)
+participants <- unlist(lapply(strsplit(sn.eprime, "-"), "[", 1))
+participants <- ifelse(participants=="E31", "E3", participants)
+sessions <- unlist(lapply(strsplit(sn.eprime, "-"), "[", 2))
+sessions <- ifelse(sessions==3, 2, sessions)
+
+
+king_mike_vanessa <- function( x, iters ) {
+  if (iters == 1) return( x )
+  if (length(x)==1) return( x )
+  return( c(x, king_mike_vanessa(x[1:length(x)]+4000, iters-1) ) )
+}  
+x <- c(1:10)
+king_mike_vanessa(x,6)
+
+events_list <- lapply(seq_along(files), function(x){
+  eprime_df <- to_data_frame(FrameList(read_eprime(files[x])))
+  t0 <- as.numeric(eprime_df$SynchroIRMf.FinishTime[!is.na(eprime_df$SynchroIRMf.FinishTime)])
+  merci <- as.numeric(eprime_df$MERCI.FinishTime[!is.na(eprime_df$MERCI.FinishTime)])
+  croix.onset <- as.numeric(eprime_df$croixfix2.OnsetTime[!is.na(eprime_df$croixfix2.OnsetTime)])
+  image.onset <- as.numeric(eprime_df$ImageDisplay1.OnsetTime)[!is.na(eprime_df$ImageDisplay1.OnsetTime)]
+  image.onset.events <- king_mike_vanessa(image.onset, 5) 
+
+  trial_type <- unlist(lapply(strsplit(as.character(eprime_df$Conditions[!is.na(eprime_df$Conditions)]), " "), "[", 1))
+  trial_type_events <- rep(trial_type, 5)
+  
+  df <- data.frame(onset = (c(image.onset.events, croix.onset)-t0)/1000,
+                   duration = c(rep(4, length(image.onset.events)), rep(10, length(croix.onset))),
+                   trial_type = c(trial_type_events, rep("rest", length(croix.onset))))
+  df <- df[order(df$onset, decreasing = FALSE),]
+  write.table(df, file.path("/home/data/refined/microbiome2brain/MRI/bids_dataset", paste0("sub-", participants[x]), paste0("ses-0", sessions[x]), "func", paste0("sub-", participants[x], "_ses-0", sessions[x], "_task-image_events.tsv")), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+  return(list(df=df, t0=t0, merci=merci, onset = df$onset[1]))
+})
+
+## fix manual trigger events
+
+
+names(events_list) <- paste(paste(participants, sessions, sep = "-"))
+
+# E4-1
+df <- events_list$`E4-1`$df
+df$onset <- df$onset - 7
+write.table(df, file.path("/home/data/refined/microbiome2brain/MRI/bids_dataset", "sub-E4","ses-01", "func", "sub-E4_ses-01_task-image_events.tsv"), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+# E3-1
+df <- events_list$`E3-1`$df
+df$onset <- df$onset - 14
+write.table(df, file.path("/home/data/refined/microbiome2brain/MRI/bids_dataset", "sub-E3","ses-01", "func", "sub-E3_ses-01_task-image_events.tsv"), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+# F1-1
+df <- events_list$`F1-1`$df
+df$onset <- df$onset - 4
+write.table(df, file.path("/home/data/refined/microbiome2brain/MRI/bids_dataset", "sub-F1","ses-01", "func", "sub-F1_ses-01_task-image_events.tsv"), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+# E2-1
+df <- events_list$`E2-1`$df
+df$onset <- df$onset - 6
+write.table(df, file.path("/home/data/refined/microbiome2brain/MRI/bids_dataset", "sub-E2","ses-01", "func", "sub-E2_ses-01_task-image_events.tsv"), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+# E5-1
+df <- events_list$`E5-1`$df
+df$onset <- df$onset + 2
+write.table(df, file.path("/home/data/refined/microbiome2brain/MRI/bids_dataset", "sub-E5","ses-01", "func", "sub-E5_ses-01_task-image_events.tsv"), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+# events_list <- lapply(seq_along(files), function(x){
+#   eprime_df <- to_data_frame(FrameList(read_eprime(files[x])))
+#   t0 <- as.numeric(eprime_df$SynchroIRMf.FinishTime[!is.na(eprime_df$SynchroIRMf.FinishTime)])
+#   merci <- as.numeric(eprime_df$MERCI.FinishTime[!is.na(eprime_df$MERCI.FinishTime)])
+#   croix.onset <- as.numeric(eprime_df$croixfix2.OnsetTime[!is.na(eprime_df$croixfix2.OnsetTime)])
+#   image.onset <- as.numeric(eprime_df$ImageDisplay1.OnsetTime)[!is.na(eprime_df$ImageDisplay1.OnsetTime)]
+#   #image.onset.events <- king_mike_vanessa(image.onset, 5) 
+# 
+#   trial_type <- unlist(lapply(strsplit(as.character(eprime_df$Conditions[!is.na(eprime_df$Conditions)]), " "), "[", 1))
+#   #trial_type_events <- rep(trial_type, 5)
+#   
+#   df <- data.frame(onset = (c(image.onset, croix.onset)-t0)/1000,
+#                    duration = c(rep(20, length(image.onset)), rep(10, length(croix.onset))),
+#                    trial_type = c(trial_type, rep("rest", length(croix.onset))))
+#   df <- df[order(df$onset, decreasing = FALSE),]
+#   write.table(df[-c(1:2),], file.path("/home/data/refined/microbiome2brain/MRI/bids_dataset", paste0("sub-", participants[x]), paste0("ses-0", sessions[x]), "func", paste0("sub-", participants[x], "_ses-0", sessions[x], "_task-image_events.tsv")), sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+#   return(list(df=df, t0=t0, merci=merci, onset = df$onset[1]))
+# })
+
+
+t0 <- unlist(lapply(events_list, "[", "t0"))
+merci <- unlist(lapply(events_list, "[", "merci"))
+onset <-  unlist(lapply(events_list, "[", "onset")) 
+ps <- paste(participants, sessions, sep = "-")
+
+qc <- data.frame(ps = ps,
+                 t0 = t0/1000,
+                 merci = merci/1000,
+                 duration = (merci-t0) / 1000,
+                 onset = onset)
+qc <- qc[order(qc$ps),]
+
+qc$dummy <- c(3,3,
+              5,2,
+              2,2,
+              3,3,
+              5,3,
+              2,3,
+              3,4)
+qc$scan <- as.Date(c("2019-07-24",
+          "2019-09-20",
+          "2019-07-15",
+          "2019-09-17",
+          "2019-07-11",
+          "2019-09-18",
+          "2019-07-17",
+          "2019-09-12",
+          "2019-08-16",
+          "2019-10-24",
+          "2019-07-08",
+          "2019-09-04",
+          "2019-08-01",
+          "2019-11-04"))
+
+qc$manual <- ifelse(qc$scan < "2019-07-20", TRUE, FALSE)
+
+qc <- qc[order(qc$onset),]
+
+
+qc
+plot(qc$onset[qc$manual==FALSE], qc$dummy[qc$manual==FALSE])
+
+
+
+```
+
+```{r}
+pdata <- readRDS("../../data/metadata.rds")
+```
+
+```{bash}
+# docker run -it poldracklab/mriqc:0.16.1 --version
+
+vim /home/data/refined/microbiome2brain/MRI/bids_dataset/code/mriqc.sh
+```
+
+```{bash}
+bash /home/data/refined/microbiome2brain/MRI/bids_dataset/code/fmriprep.sh
+```
+
+```{bash}
+bash /home/data/refined/microbiome2brain/MRI/bids_dataset/code/xcpengine.sh
+```
+```{bash}
+bash /home/data/refined/microbiome2brain/MRI/bids_dataset/code/xcpengine-seedConnectivity.sh
+```
+

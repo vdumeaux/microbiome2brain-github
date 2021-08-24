@@ -1,0 +1,62 @@
+---
+title: "plot abundances"
+author: "Vanessa Dumeaux"
+date: "9/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(phyloseq)
+```
+
+
+```{r}
+# directly derived from kraken
+# kraken_ra <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_ra.rds")
+kraken_count <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+kraken_count_spec <- tax_glom(kraken_count, "species")
+kraken_ra_spec <-  microbiome::transform(kraken_count_spec, "compositional")
+```
+
+# Plot relative abundances - color on simplified family
+```{r}
+
+p1 <- plot_bar(kraken_ra_spec, fill = "family2", x="sampleID") +
+  theme_minimal() +
+  scale_fill_discrete(name = "Top Family")
+
+
+ggsave("output/kraken_ra_spec_top_2.pdf", p1)
+```
+
+```{r}
+saveRDS(kraken_ra_spec, "/home/data/refined/microbiome2brain/microbiome/R/kraken_ra_spec.rds")
+```
+
+### Genus
+
+# Download data and add phylogenetic tree
+```{r}
+kraken_count_spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+kraken_count_gen <- tax_glom(kraken_count_spec, "genus")
+
+```
+
+## Select rows with species annot and plot bar relative abundance (fill with top family)
+```{r}
+kraken_ra_gen <-  microbiome::transform(kraken_count_gen, "compositional")
+
+
+p1 <- plot_bar(kraken_ra_gen, fill = "family2", x="sampleID") +
+  theme_minimal() +
+  scale_fill_discrete(name = "Top Family")
+
+ggsave("output/kraken_ra_gen_top_2.pdf", p1)
+
+saveRDS(kraken_ra_gen, "/home/data/refined/microbiome2brain/microbiome/R/kraken_gen.rds")
+
+```

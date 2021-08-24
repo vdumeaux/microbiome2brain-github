@@ -1,0 +1,290 @@
+---
+title: "contigsTobin"
+author: "Vanessa Dumeaux"
+date: "6/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+metabat.dir <- "/home/data/refined/microbiome2brain/microbiome/03-metabat"
+contigs <- list.files(metabat.dir, pattern = "^contigs.fasta.depth.txt", recursive = TRUE, full.names = TRUE)
+
+bins.contigs <- list.files(metabat.dir, pattern = "^metabatbin.scaffolds2bin.tsv", recursive = TRUE, full.names = TRUE)
+
+bins.checkm <- list.files(file.path(metabat.dir, "drep_bins/data_tables"), pattern = "^Chdb.csv", recursive = TRUE, full.names = TRUE)
+
+
+sn <- unlist(lapply(strsplit(bins.contigs, "/"), "[", 8))
+
+```
+
+```{r}
+contigs.cov <- lapply(seq_along(contigs), function(x){
+  df <- read.table(contigs[x], sep="\t", stringsAsFactors = FALSE, header = TRUE)
+  df$sampleID <- sn[x]
+  colnames(df)[4:5] <- c("sample.bam", "sample.bam-var")
+  df <- df[df$contigLen >= 1500, ]
+  return(df)
+})
+
+contigs.cov.df <- do.call(rbind, contigs.cov)
+
+```
+```{r}
+bins.contigs.tb <- lapply(seq_along(bins.contigs), function(x){
+  df <- read.table(bins.contigs[x], sep="\t", stringsAsFactors = FALSE)
+  colnames(df) <- c("contigName", "binName")
+  df$binNameSample <- paste(sn[x], df$binName, sep = "_")
+  return(df)
+})
+
+bins.contigs.df <- do.call(rbind, bins.contigs.tb)
+
+```
+
+```{r}
+unclean <- dplyr::left_join(contigs.cov.df, bins.contigs.df)
+head(unclean[is.na(unclean$binNameSample),])
+summary(unclean[is.na(unclean$binNameSample),]$contigLen)
+plot(sort(unclean[is.na(test$binNameSample),]$contigLen))
+
+
+table(is.na(unclean$binNameSample))
+
+length(unique(unclean$binNameSample))
+
+
+```
+
+
+
+```{r}
+bins.checkm.tb <- read.csv(bins.checkm, stringsAsFactors = FALSE)
+bins.checkm.tb$binNameSample <- gsub(".fna", "", bins.checkm.tb$Bin.Id)
+colnames(bins.checkm.tb) <- gsub("X", "n", colnames(bins.checkm.tb))
+
+
+derep.bins <- list.files(file.path(metabat.dir,"drep_bins", "dereplicated_genomes"),
+                         pattern = ".fna$", recursive = FALSE, full.names = FALSE)
+derep.bins <- gsub(".fna", "", derep.bins)
+
+
+table(bins.checkm.tb$binNameSample %in% derep.bins)
+
+bins.checkm.tb$drepBins <- bins.checkm.tb$binNameSample %in% derep.bins
+table(bins.checkm.tb$Marker.lineage[bins.checkm.tb$drepBins])
+```
+
+
+
+```{r}
+library(dplyr)
+
+bins.df <- dplyr::left_join(bins.contigs.df, bins.checkm.tb)
+
+tb <- dplyr::left_join(contigs.cov.df, bins.df)
+
+contigs.bins.summary <- tb %>%
+    group_by(sampleID) %>%
+    summarise(nContigs = n_distinct(contigName),
+              meanContigLen = mean(contigLen),
+              medianContigLen = median(contigLen),
+              maxContigLen = max(contigLen),
+              maxScaffoldLen = max(Longest.contig..bp., na.rm = TRUE),
+              medianN50Contigs = mean(N50..contigs., na.rm = TRUE),
+              sumTotalAvDepth = sum(totalAvgDepth),
+              nBins = n_distinct(binName),
+              propContigBin = sum(!is.na(binName))/n_distinct(contigName),
+              nBinsNA = sum(is.na(binName)),
+              nderepBins = n_distinct(binName[drepBins])
+              )
+write.csv(contigs.bins.summary, "output/contigs.bins.summary.csv")
+```
+```{r}
+head(contigs.bins.summary)
+```
+```{r}
+length(unique(tb$binNameSample[tb$Completeness >= 75 & tb$Contamination<=25]))
+summary(tb$Completeness[tb$drepBins==TRUE])
+summary(tb$Contamination[tb$drepBins==TRUE])
+
+
+summary(tb$Completeness)
+summary(tb$Contamination)
+
+table(tb$binNameSample)
+
+
+```
+```{r}
+sizeG <- tb %>%
+  group_by(binNameSample) %>%
+  summarize(minG=min(Genome.size..bp.),
+            meanG=mean(Genome.size..bp.))
+summary(sizeG$meanG)
+```
+```{r}
+sizeG.drep <- subset(tb, drepBins==TRUE) %>%
+  group_by(binNameSample) %>%
+  summarize(minG=min(Genome.size..bp.),
+            meanG=mean(Genome.size..bp.))
+summary(sizeG.drep$meanG)
+```
+
+
+# import drep cluster results
+```{r}
+drep.clusters <- read.csv("/home/data/refined/microbiome2brain/microbiome/03-metabat/drep_bins/data_tables/Cdb.csv", stringsAsFactors = FALSE)
+drep.clusters$participant <- unlist(lapply(strsplit(drep.clusters$genome, "_"), "[",1))
+drep.clusters$participant <- substr(drep.clusters$participant, 1,2)
+drep.clusters$binNameSample <- gsub(".fna", "", drep.clusters$genome)
+
+sec.clusters <- drep.clusters %>%
+  group_by(secondary_cluster) %>%
+  summarize(nBins=n_distinct(genome),
+            nParticipants=n_distinct(participant))
+
+sec.clusters$nBins <- as.factor(sec.clusters$nBins)
+sec.clusters$nParticipants <- as.factor(sec.clusters$nParticipants)
+sec.clusters$group <- ifelse(sec.clusters$nBins %in% c(1,2), "cluster 1-2bins", "cluster >2 bins")
+sec.clusters$group <- relevel(as.factor(sec.clusters$group), ref="cluster 1-2bins")
+
+p1 <- ggplot(sec.clusters, aes(nBins, fill=nParticipants))+
+  geom_bar() +
+  scale_fill_manual(values = c("#d0d1e6", "#a6bddb", "#74a9cf", "#2b8cbe", "#045a8d", "#034e7b"), name = "# distinct participants") + 
+  facet_wrap(~group, scales = "free")+
+  theme_minimal() +
+  theme(legend.position="bottom", legend.direction = "horizontal") +
+  guides(fill = guide_legend(nrow = 1, label.position = "bottom")) +
+  xlab("# bins in cluster")
+  
+ggsave("output/nbins_nparticipants_drepClusters.pdf", p1, width = 7, height = 5)
+
+```
+# import annotations
+
+```{r}
+bat <- read.csv("/home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/CAT/out.BAT.bin2classification.names.txt", stringsAsFactors = FALSE, header = FALSE, sep ="\t" )
+head(bat)
+colnames(bat) <- c("binNameSample", "classification",
+                   "reason","lineage", "lineage_score",
+                   "root_lineage_name", "organism_lineage_name",
+                   "superkingdom_lineage_name", "kingdom_lineage_name",
+                   "phylum_lineage_name", "class_lineage_name",
+                   "order_lineage_name","family_lineage_name",
+                   "genus_lineage_name","species1_lineage_name","species2_lineage_name")
+bat <- bat[-1,]
+bat$binNameSample <- gsub(".fna", "", bat$binNameSample)
+
+cluster_annot <- left_join(drep.clusters, bat)
+
+cluster_annot <- cluster_annot %>% 
+  mutate(phylum = gsub(": .*", "", phylum_lineage_name),
+         class = gsub(": .*", "", class_lineage_name),
+         order = gsub(": .*", "", order_lineage_name),
+         family = gsub(": .*", "",family_lineage_name),
+         genus = gsub(": .*", "",genus_lineage_name),
+         species1 = gsub(": .*", "",species1_lineage_name))
+
+qc_clusters <- cluster_annot %>%
+  group_by(secondary_cluster) %>%
+  summarise(phylum=n_distinct(phylum),
+            class=n_distinct(class),
+            order=n_distinct(order),
+            family=n_distinct(family))
+
+table(qc_clusters$family)
+
+cluster_annot[cluster_annot$secondary_cluster %in% qc_clusters$secondary_cluster[qc_clusters$family==2],]
+
+```
+
+phylophlan
+```{r}
+phylo <- read.csv("/home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/cleaned_bins.tsv",
+                  stringsAsFactors = FALSE, sep = "\t", header = TRUE)
+phylo <- phylo[, 1:2]
+phylo <- tidyr::separate(data = phylo, col = X.u.k._.S.G.F.GBid.taxa_level.taxonomy.avg_dist, into= c("SGB", "level", "taxonomy", "av_dist"), sep = ":")
+
+phylo$binNameSample <- phylo$X.input_bin
+
+annot.bins <- left_join( phylo,cluster_annot)
+
+```
+
+```{r}
+dat <- left_join(tb, annot.bins)
+```
+```{r}
+dat.drep <- dat[dat$drepBins,]
+dict <- dat.drep$binNameSample
+names(dict) <- dat.drep$secondary_cluster
+
+dat$finalBins <- dict[dat$secondary_cluster]
+
+length(unique(dat$finalBins))
+
+bin2meta.drep <- dat[, colnames(dat) %in% c("binNameSample", "finalBins", "sampleID", "drepBins", "taxonomy")]
+bin2meta.drep <- unique(bin2meta.drep)
+bin2meta.drep <- bin2meta.drep[!is.na(bin2meta.drep$finalBins),]
+bin2meta.drep <- tidyr::separate(bin2meta.drep, col=taxonomy, into=c("k", "p", "c", "o", "f", "g", "s", "t"), sep="\\|", remove = FALSE )
+
+p2.df <- bin2meta.drep %>%
+  group_by(p) %>%
+  summarise(ntaxon = n_distinct(sampleID))
+
+k.df <- bin2meta.drep %>%
+  group_by(k) %>%
+  summarise(ntaxon = n_distinct(sampleID))
+
+p2.df <- p2.df[order(p2.df$ntaxon, decreasing = TRUE), ]
+p2.df$p <- gsub("p__", "", p2.df$p)
+p2.df$p <- factor(p2.df$p, levels=p2.df$p[order(p2.df$ntaxon, decreasing = FALSE)], ordered = TRUE)
+
+
+p2 <- ggplot(p2.df, aes(x=p, y=ntaxon)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  coord_flip () +
+  ylab("# samples") +
+  xlab("Phylum")
+
+
+ggsave("output/most_prevalent_phylum.pdf", p2, height = 5)
+
+
+```
+```{r}
+phylo2 <- read.csv("/home/data/refined/microbiome2brain/microbiome/03-metabat/drep_bins/drep_phylophlan_metagenomic.tsv",
+                  stringsAsFactors = FALSE, sep = "\t", header = TRUE)
+phylo2 <- tidyr::separate(data = phylo2, col = X.u.k._.S.G.F.GBid.taxa_level.taxonomy.avg_dist, into= c("SGB", "level", "taxonomy", "av_dist"), sep = ":")
+
+phylo2 <- tidyr::separate(data = phylo2, col = SGB, into=c("SGB1", "SGB2"), sep="_")
+
+phylo2$binNameSample <- phylo2$X.input_bin
+table(phylo2$SGB1)
+
+phylo2 <- tidyr::separate(phylo2, col=taxonomy, into=c("k", "p", "c", "o", "f", "g", "s", "t"), sep="\\|", remove = FALSE )
+
+p4.df <- phylo2 %>%
+  group_by(p) %>%
+  summarise(ntaxon = n())
+p4.df <- p4.df[order(p4.df$ntaxon, decreasing = FALSE), ]
+p4.df$p <- gsub("p__", "", p4.df$p)
+p4.df$p <- factor(p4.df$p, levels=p4.df$p[order(p4.df$ntaxon, decreasing = FALSE)], ordered = TRUE)
+
+p4 <- ggplot(p4.df, aes(x=p, y=ntaxon)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  coord_flip () +
+  ylab("# bins") +
+  xlab("Phylum")
+ggsave("output/drepBins_phylum2.pdf", p4, height = 5)
+
+
+```
+

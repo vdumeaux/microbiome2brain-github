@@ -1,0 +1,47 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(R.utils)
+
+library(BiocParallel)
+
+
+ncores <- 20
+register(MulticoreParam(workers=ncores))
+
+source("../../src/preprocessing.R")
+
+
+datdir <- "/home/data/refined/microbiome2brain/microbiome"
+
+
+sample.names <- list.dirs("/home/data/refined/microbiome2brain/microbiome/trimmed", recursive = FALSE, full.names = FALSE)
+```
+
+# Build index for final assembly and align reads to contigs
+
+
+```{r}
+
+bplapply(sample.names, build.index)
+
+bplapply(sample.names, aligning) ## alignment rates saved in output/
+```
+
+
+```{r}
+files <- list.files(file.path(datdir, "aligned"), pattern = ".sam$", recursive = TRUE, full.names = TRUE)
+
+bplapply(files, samToBam)
+
+bplapply(gsub(".sam",".bam", files), indexBam)
+
+```
+

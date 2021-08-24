@@ -1,0 +1,162 @@
+---
+title: "humann3 functional analysis"
+author: "Vanessa Dumeaux"
+date: "1/15/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+## Reformat bracken report as mpa
+Report levels of the taxonomy with standard rank assignments (superkingdom, kingdom, phylum, class, order, family, genus, species), and uses pipes to delimit the various levels of the taxonomy.
+
+```{r}
+library(R.utils)
+library(BiocParallel)
+
+ncores <- 5
+register(MulticoreParam(workers=ncores))
+
+datdir <- "/home/data/refined/microbiome2brain/microbiome/01-trimmed"
+files <- list.files(datdir, pattern = "bracken.kreport", recursive = TRUE, full.names = TRUE)
+sn <- list.dirs(datdir, full.names = FALSE, recursive = FALSE)
+sn <- sn[-which(sn %in% c("humann", "metaphlan", "kraken2humann"))]
+
+bracken2mpa <- function(x){
+  system(capture.output(
+    cat("python /home/shared/tools/KrakenTools/kreport2mpa.py -r", files[x], "-o", paste0(files[x], ".mpa"), "--percentages")))}
+
+bplapply(seq_along(files), bracken2mpa)
+
+
+```
+
+## Reformat bracken mpa output to satisfy humann3
+```{r}
+tax <- sapply(sn, function(x){
+ f <- file.path(datdir, x, "reads_bracken.kreport.mpa")
+ tb <- read.table(f)
+ tb$V3 <- 1:nrow(tb)
+ tb$V4 <- rep("", nrow(tb))
+ tb <- tb [, c(1,3,2,4)]
+ write.table(tb, file.path(datdir, x, "reads_bracken.kreport.mpa.reformat"), col.names = FALSE, quote = FALSE, row.names = FALSE, sep = "\t")
+ fConn <- file(file.path(datdir, x, "reads_bracken.kreport.mpa.reformat"), 'r+')
+ Lines <- readLines(fConn)
+ writeLines(c("#mpa_v30_CHOCOPhlAn_201901", Lines), con = fConn)
+ close(fConn)
+})
+
+```
+
+## Run humann2 with bracken taxonomic profile
+```{bash}
+
+conda activate metaphlan-3.0
+
+# To view humann3 settings
+humann_config --print
+
+bash ~/repositories/microbiome2brain/exp/exp17-kraken2humann3/humann3.sh
+
+```
+
+
+######### NEED TO UPDATE CODE FROM HERE #####
+
+
+## Normalize counts using relative abundance or cpm
+```{bash}
+conda activate metaphlan-3.0
+
+# choose cpm
+bash ~/repositories/microbiome2brain/exp/exp17-kraken2humann3/renorm-humann3.sh
+
+```
+
+
+```{r}
+genes <- list.files("/home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann", pattern = "genefamilies-cpm.tsv", recursive = TRUE, full.names = TRUE)
+
+path <- list.files("/home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann", pattern = "pathabundance-cpm.tsv", recursive = TRUE, full.names = TRUE)
+
+
+cp.genefiles <- function(x){
+  system(capture.output(
+         cat("cp", genes[grep(x, genes)], paste0("/home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/indiv_analyses/", paste0(x, "-genefamilies-cpm.tsv")))
+         ))
+}
+
+bplapply(sn, cp.genefiles)
+
+
+cp.pathfiles <- function(x){
+  system(capture.output(
+         cat("cp", path[grep(x, path)], paste0("/home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/indiv_analyses/", paste0(x, "-pathabundance-cpm.tsv")))
+         ))
+}
+
+bplapply(sn, cp.pathfiles)
+```
+
+
+
+## join tables
+```{bash}
+conda activate metaphlan-3.0
+
+
+## cpm
+humann_join_tables --input /home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/indiv_analyses --output /home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/humann_genefamilies-cpm.tsv --file_name genefamilies-cpm
+
+humann_join_tables --input /home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/indiv_analyses --output /home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/humann_pathabundance-cpm.tsv --file_name pathabundance-cpm
+
+```
+
+## Import results table in R 
+```{r}
+dna_path = read.csv(file = "/home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/humann_pathabundance-cpm.tsv", header = T, row.names = 1, check.names = FALSE, sep = "\t")
+
+View(dna_path)
+# Remove species stratifications
+tmp.ind = grep("\\|.*", rownames(dna_path), invert = T) # grep the rows that do not include species stratifications 
+tmp.ind # check the output
+dna_path_unstratified = dna_path[tmp.ind,] # Create a new dataframe with only those unstratified rows
+rm(tmp.ind) # Remove tmp.ind to clear space
+row.names(dna_path_unstratified) # check the output: looks great
+colSums(dna_path_unstratified) # Check the sample sums to make sure they are in proportion format (0-1) and are all ~1
+# CPM = RA * 1e6
+
+dim(dna_path_unstratified)
+View(dna_path_unstratified)
+
+dna_path_unstratified_filt = dna_path_unstratified[apply(dna_path_unstratified, 1, function(x) sum(x > 100) > 0.1 * ncol(dna_path_unstratified)), ]
+dim(dna_path_unstratified_filt)
+
+write.table(dna_path_unstratified_filt, "/home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/R/humann_pathabundance-cpm-unstrat-filtered.tsv", sep="\t", quote=FALSE, row.names = TRUE)
+
+
+```
+
+
+###old reef code
+barplot for sulfate assimilation pathway
+```{bash}
+humann_barplot --input /home/data/refined/reef/humann3/humann_pathabundance-cpm.tsv -f SO4ASSIM-PWY -o /home/data/refined/reef/humann3/humann_sulfate_assim_barplot.pdf
+```
+
+
+explore prochloroccus marinus and archeae
+```{r}
+idx <- grep("marinus", rownames(dna_path))
+write.table(dna_path[idx,], "/home/data/refined/reef/humann3/R/prochl_marinus_pathway_cpm.tsv", sep="\t", quote=FALSE, row.names = TRUE)
+
+
+idx2 <- grep("Poseidoniales|Methano|Halobacteria|Nitroso|Crenar|Thaumarch|Bathyarch|archea", rownames(dna_path))
+View(dna_path[idx2,])
+```
+

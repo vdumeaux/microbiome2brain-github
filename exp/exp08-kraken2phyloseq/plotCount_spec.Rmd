@@ -1,0 +1,243 @@
+---
+title: "compare"
+author: "Vanessa Dumeaux"
+date: "6/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Counts
+```{r}
+
+kraken_count <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+
+kraken_count_spec <- tax_glom(kraken_count, "species")
+phy_tree(kraken_count_spec) <- new.tree
+
+
+df.plot <- as.data.frame(as(otu_table(kraken_count_spec), "matrix"))
+df.plot <- melt(df.plot)
+df.plot$value <- log2(df.plot$value + 1)
+df.plot$variable <- as.character(df.plot$variable)
+df.plot$sampleID <- unlist(lapply(strsplit(df.plot$variable, "_"), "[", 1))
+df.plot$participant <- substr(df.plot$sampleID, 1,2)
+df.plot$participant <- ordered(factor(df.plot$participant, levels = c("E1", "E2", "E3", "E4", "E5", "F1", "F2")))
+df.plot$timepoint <- substr(df.plot$sampleID,3,3)
+
+
+df.count <- log2(as(otu_table(kraken_count_spec), "matrix"))
+
+library(ggplot2)
+library(ggridges)
+library(forcats)
+
+p2 <- ggplot(df.plot, aes(x = value, y = fct_rev(participant), color = timepoint, point_color=timepoint, fill=timepoint)) +
+    geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 3, size = 0.25,
+    position = position_points_jitter(height = 0,)
+  ) +
+    scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("A", "B")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_x_continuous(limits = c(0, 25), expand = c(0, 0)) +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  xlab(" ") +
+  theme_ridges(center=TRUE) +
+  theme(axis.title.y = element_blank(), axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8), legend.position = c(0.6, -0.12),
+        legend.direction = "horizontal")
+  
+
+
+ggsave("output/ggridge_log2Counts.png", p2, units = "cm", width = 10, height = 10, dpi = 600)
+
+
+
+
+
+ps.rarefied.spec = rarefy_even_depth(kraken_count_spec, sample.size=0.9*min(sample_sums(kraken_count_spec)), replace=F, rngseed = 1)
+
+
+
+saveRDS(ps.rarefied.spec, "/home/data/refined/microbiome2brain/microbiome/R/ps.rarefied.spec.rds")
+
+
+richness.tb <- estimate_richness(ps.rarefied.spec)
+
+p3 <- plot_richness(ps.rarefied.spec, x="participant",color="timepoint", measures=c("Chao1", "Shannon")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+  theme_minimal() +
+  theme(axis.title = element_blank(), axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8), legend.position = c(0.6, -0.12),legend.direction = "horizontal")
+
+ggsave("output/rarefied_species_Chao1_Shannon_v2.pdf",p3, units = "cm", width = 10, height = 10)
+
+```
+
+
+```{r}
+#need tree - export species
+
+# PCoA plot using the unweighted UniFrac as distance
+ps.rarefied.spec <- readRDS ("/home/data/refined/microbiome2brain/microbiome/R/ps.rarefied.spec.rds")
+kraken_count_spec0 <- subset_samples(kraken_count_spec, time == 0)
+
+
+wunifrac_dist = phyloseq::distance(ps.rarefied.spec, method="unifrac", weighted=F)
+dpcoa_dist = phyloseq::distance(ps.rarefied.spec, method="dpcoa")
+
+ordination = ordinate(ps.rarefied.spec, method="DPCoA", distance=dpcoa_dist)
+plot_ordination(ps.rarefied.spec, ordination, color="timepoint") + 
+  theme(aspect.ratio=1)
+
+dist_methods <- unlist(distanceMethodList)
+
+plist <- vector("list", length(dist_methods))
+names(plist) = dist_methods
+for( i in dist_methods ){
+    # Calculate distance matrix
+    iDist <- phyloseq::distance(ps.rarefied.spec, method=i)
+    # Calculate ordination
+    iMDS  <- ordinate(ps.rarefied.spec, "MDS", distance=iDist)
+    ## Make plot
+    # Don't carry over previous plot (if error, p will be blank)
+    p <- NULL
+    # Create plot, store as temp variable, p
+    p <- plot_ordination(ps.rarefied.spec, iMDS, color="Age")
+    # Add title to each plot
+    p <- p + ggtitle(paste("MDS using distance method ", i, sep=""))
+    # Save the graphic to file.
+    plist[[i]] = p
+}
+
+df = plyr::ldply(plist, function(x) x$data)
+names(df)[1] <- "distance"
+p = ggplot(df, aes(Axis.1, Axis.2, color=Age))
+p = p + geom_point(size=3, alpha=0.5)
+p = p + facet_wrap(~distance, scales="free")
+p = p + ggtitle("MDS on various distance metrics")
+p
+
+
+df = plyr::ldply(plist, function(x) x$data)
+names(df)[1] <- "distance"
+p = ggplot(df, aes(Axis.1, Axis.2, color=timepoint))
+p = p + geom_point(size=3, alpha=0.5)
+p = p + facet_wrap(~distance, scales="free")
+p = p + ggtitle("MDS on various distance metrics")
+p
+
+print(plist[["dpcoa"]])
+vegan::adonis(dpcoa_dist ~ sample_data(ps.rarefied.spec)$timepoint)
+vegan::adonis(dpcoa_dist ~ sample_data(ps.rarefied.spec)$timepoint +sample_data(ps.rarefied.spec)$participant)
+
+vegan::adonis(wunifrac_dist ~ sample_data(ps.rarefied.spec)$participant +sample_data(ps.rarefied.spec)$Age)
+vegan::adonis(wunifrac_dist ~ sample_data(ps.rarefied.spec)$participant + sample_data(ps.rarefied.spec)$leptin_ng_ml)
+vegan::adonis(wunifrac_dist ~ sample_data(ps.rarefied.spec)$participant + sample_data(ps.rarefied.spec)$Total_Tissue_.Fat)
+vegan::adonis(wunifrac_dist ~ sample_data(ps.rarefied.spec)$participant + sample_data(ps.rarefied.spec)$Total_Lean_Mass)
+vegan::adonis(wunifrac_dist ~ sample_data(ps.rarefied.spec)$calculatedBMI)
+vegan::adonis(wunifrac_dist ~ sample_data(ps.rarefied.spec)$Weight_kg + sample_data(ps.rarefied.spec)$Age)
+
+timepointA <- prune_samples(sample_data(ps.rarefied.spec)$timepoint=="A", ps.rarefied.spec)
+wunifrac_dist = phyloseq::distance(timepointA 
+                                   , method="unifrac", weighted=F)
+
+vegan::adonis(wunifrac_dist ~ sample_data(timepointA)$Age)
+vegan::adonis(wunifrac_dist ~ sample_data(timepointA)$Total_Tissue_.Fat)
+vegan::adonis(wunifrac_dist ~ sample_data(timepointA)$Age + sample_data(timepointA)$leptin_ng_ml + sample_data(timepointA)$Total_Tissue_.Fat)
+
+```
+```{r}
+# adjust for sequencing depth
+# total = median(sample_sums((ps.rarefied.spec))
+# standf = function(x, t=total) round(t * (x / sum(x)))
+# gps = transform_sample_counts(GP, standf)
+
+gpsf = filter_taxa(ps.rarefied.spec, function(x) sd(x)/mean(x) > 3.0, TRUE)
+p1 <- plot_heatmap(gpsf, "nMDS", "wunifrac", sample.label = "sampleID", taxa.label = "Family",low="#66CCFF", high="#000033", na.value="white", first.sample = "E2A_A3")
+
+plot_heatmap(ps.rarefied.spec, method = "DPCoA", distance = "dpcoa")
+```
+
+```{r}
+myTaxa = names(sort(taxa_sums(ps.rarefied.spec), decreasing = TRUE)[1:25])
+ex1 = prune_taxa(myTaxa, ps.rarefied.spec)
+plot_tree(ex1, color = "participant", shape = "timepoint", label.tips = "species", ladderize = "left", justify = "left" , size = "Abundance")
+plot_tree(ex1, color = "timepoint", label.tips = "species", ladderize = "left", justify = "left" , size = "Abundance", text.size = 3 )
+plot_tree(ex1, color = "Age", label.tips = "species", ladderize = "left", justify = "left" , size = "Abundance")
+
+```
+```{r}
+library(DESeq2)
+ds = phyloseq_to_deseq2(kraken_count_spec, ~ participant + timepoint)
+ds = DESeq(ds)
+```
+
+```{r}
+alpha = 0.2
+res = results(ds, contrast=c("timepoint", "B", "A"), alpha=alpha)
+res = res[order(res$padj, na.last=NA), ]
+res_sig = res[(res$padj < alpha), ]
+res_sig
+```
+
+```{r}
+res_sig = cbind(as(res_sig, "data.frame"), as(tax_table(kraken_count_spec)[rownames(res_sig), ], "matrix"))
+```
+```{r}
+ggplot(res_sig, aes(x=species, y=log2FoldChange, color=family)) +
+    geom_jitter(size=3, width = 0.2) +
+    theme(axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5)) +
+  theme_minimal() +
+  coord_flip()
+```
+```{r}
+kraken_count <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+
+kraken_count_spec <- phyloseq::tax_glom(kraken_count, "species")
+
+
+tree2 <- read_tree("/home/data/refined/microbiome2brain/microbiome/R/phyloT_generated_tree_1593538485_newick.nwk")
+tree2$edge.length <- ape::compute.brlen( tree2, 1 )$edge.length
+
+out.group <- "1618255"
+
+new.tree <- ape::root(tree2, outgroup=out.group, resolve.root=TRUE)
+
+phy_tree(kraken_count_spec) <- new.tree
+
+plot_heatmap(kraken_count_spec)
+
+p1 <- plot_heatmap(kraken_count_spec, "NMDS", "bray", sample.label = "sampleID", taxa.label = "Family",low="#66CCFF", high="#000033", na.value="white", first.sample = "E2A_A3")
+
+ggsave("output/RA_heatmap_family.pdf", p1)
+
+
+raw.counts <- as(otu_table(kraken_count_spec), "matrix")
+count <- edgeR::cpm(raw.counts)
+
+source("../../../chipseqR/R/bresat.R")
+df <- data.frame(as(sample_data(kraken_count_spec), "matrix"))
+rownames(df) <- colnames(count)
+
+
+
+bs <- sig.ranksum(count, ns=1:nrow(df.exprs), full.return=TRUE)
+
+
+pheatmap::pheatmap(bs$dat, cluster_rows=FALSE, show_rownames=FALSE, scale="row",color=rev(colorRampPalette(rev(brewer.pal(n = 8, name ="Blues")))(200)),
+                   cluster_cols=FALSE, fontsize = 6, 
+                   #main = paste0("significant peaks ", nrow(bs$dat)),
+                   annotation_col = df[bs$pat.order,],
+                   filename = "output/bresat_kraken_count_spec.pdf")
+
+```
+

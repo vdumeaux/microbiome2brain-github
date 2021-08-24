@@ -1,0 +1,312 @@
+---
+title: "xTimepoint"
+author: "Vanessa Dumeaux"
+date: "9/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(phyloseq)
+library(microbiome)
+library(tibble)
+library(dplyr)
+
+source("../../src/utilities.R")
+
+# Import rarefied data for species
+ps.rarefied.spec <- readRDS ("/home/data/refined/microbiome2brain/microbiome/R/ps.rarefied.spec.rds")
+
+### all ----
+
+dist_methods <- unlist(distanceMethodList)[-c(length(unlist(distanceMethodList)), 16)]
+# bug in (w)unifrac distance calculation with phyloseq
+# check https://github.com/joey711/phyloseq/issues/956
+# use rbiom instead
+
+dist_methods <- dist_methods[-grep("unifrac", dist_methods)]
+
+plist <- vector("list", length(dist_methods))
+
+plist <- lapply(dist_methods, function(i){
+  print(i)
+    # Calculate distance matrix
+    iDist <- phyloseq::distance(ps.rarefied.spec, method=i)
+    # Calculate ordination
+    iMDS  <- ordinate(ps.rarefied.spec, "MDS", distance=iDist)
+    ## Make plot
+    # Don't carry over previous plot (if error, p will be blank)
+    p <- NULL
+    # Create plot, store as temp variable, p
+    p <- plot_ordination(ps.rarefied.spec, iMDS, color="age_group")
+    # Add title to each plot
+    p <- p + ggtitle(paste("MDS using distance method ", i, sep=""))
+    # Save the graphic to file.
+    return(list(plot=p, dist=iDist))
+})
+names(plist) = dist_methods
+
+dist_unifrac <- c("wunifrac", "unifrac")
+plist.unifrac <- vector("list", length(dist_unifrac))
+
+plist.unifrac <- lapply(dist_unifrac, function(i){
+  print(i)
+  if(i=="wunifrac"){
+    weighted = TRUE
+  } else {weighted = FALSE}
+  
+  iDist <- rbiom::unifrac(otu_table(ps.rarefied.spec), weighted=weighted, tree=phy_tree(ps.rarefied.spec))
+  # Calculate ordination
+  iMDS  <- ordinate(ps.rarefied.spec, "MDS", distance=iDist)
+  ## Make plot
+  # Don't carry over previous plot (if error, p will be blank)
+  p <- NULL
+  # Create plot, store as temp variable, p
+  p <- plot_ordination(ps.rarefied.spec, iMDS, color="age_group")
+  # Add title to each plot
+  p <- p + ggtitle(paste("MDS using distance method ", i, sep=""))
+  return(list(plot=p, dist=iDist))
+})
+names(plist.unifrac) = dist_unifrac
+
+plist <- c(plist, plist.unifrac)
+saveRDS(plist, "output/plist.rds")
+```
+```{r}
+
+plist <- readRDS("output/plist.rds")
+
+var <- c("timepoint", "leptin_ng_ml", "enterotype",
+         "calculatedBMI", "waistCircumference_cm", "bmi_group",
+         "VO2max_ml.kg.min", "Wmax_watts",
+         "Total_Bone_Mass", "Total_Fat_Mass", "Total_Lean_Mass", "Total_Total_Mass", "fat_lean_ratio")
+
+uni.paired.permonova <- list()
+for (i in var){
+  uni.paired.permonova[[i]] <- lapply(plist, function(x){
+    anova(vegan::dbrda(x$dist ~ sample_data(ps.rarefied.spec)$participant + 
+                    sample_data(ps.rarefied.spec)$timepoint + unlist(sample_data(ps.rarefied.spec)[, i])), by = "margin")
+  })
+}
+
+df.plot <- lapply(plist, "[[", "plot")
+
+pdf("output/allmeasures_allvar_mds.pdf", width = 20, height = 20)
+for (i in var){
+  df = plyr::ldply(df.plot, function(x) x$data)
+  names(df)[1] <- "distance"
+  p = ggplot(df, aes_string(x="Axis.1", y="Axis.2", color=paste0(i), shape = "participant"))+
+    scale_shape_manual(values = c(0, 1, 2, 5,6,11, 13))
+  p = p + geom_point(size=3, alpha=0.5)
+  p = p + facet_wrap(~distance, scales="free")
+  p = p + ggtitle(paste0(i, " - MDS on various distance metrics"))
+  print(p)
+}
+dev.off()
+
+df = plist$wunifrac$plot$data
+pp <-  ggplot(df, aes(Axis.1, Axis.2, color=calculatedBMI))
+pp <-  pp + geom_point(size=3, alpha=0.5) + stat_ellipse()
+pp = pp + ggtitle("MDS on weighted unifrac metric")
+pp
+
+
+iMDS <- vegan::betadisper(plist$wunifrac$dist, df$enterotype)
+
+d <- ggordiplots::gg_ordiplot(iMDS, df$enterotype, spiders = TRUE)
+test <- cbind(d$df_ord, sample_data(ps.rarefied.spec))
+
+
+df_ellipse <- d$df_ellipse
+B_ellipse <- subset(df_ellipse, Group == "ET_Bacteroides", droplevels= TRUE)
+P_ellipse <- subset(df_ellipse, Group == "ET_Prevotella", droplevels= TRUE)
+F_ellipse <- subset(df_ellipse, Group == "ET_Firmicutes", droplevels= TRUE)
+
+plot_test<-ggplot(test, aes(x=x, y=y))+ 
+  geom_point(aes(color=enterotype, shape=timepoint), size=3) +
+  #geom_text(aes(color=enterotype, label=participant), nudge_x = 0.2, nudge_y = 0.1, size = 2) +
+  theme_bw()
+
+plot_test<-plot_test +
+  geom_path(data=B_ellipse, aes(x=x, y=y, color=Group)) +
+  geom_path(data=P_ellipse, aes(x=x, y=y, color=Group)) +
+  geom_path(data=F_ellipse, aes(x=x, y=y, color=Group)) 
+
+plot_test<- plot_test + 
+  geom_segment(data=d$df_spiders, aes(x=cntr.x, y=cntr.y,xend=x, yend=y, color=Group), linetype="dashed") +
+  xlab("PCoA 1") + ylab("PCoA 2") + labs(color = "Enterotype", shape ="Timepoint")
+
+ggsave("output/MDS_enterotype_wunifrac.pdf", plot_test, height = 4, width = 5, useDingbats=FALSE)
+
+pp <-  ggplot(df, aes(Axis.1, Axis.2, color=participant, shape=timepoint))
+pp <-  pp + geom_point(size=3) +scale_y_continuous(limits = c(-3,3))+scale_x_continuous(limits = c(-5,4))
+pp <-  pp + ggtitle("MDS on weighted unifrac metric") +
+  theme_bw() +
+  geom_line(aes(Axis.1, Axis.2, color=participant, group=participant), linetype="dashed")
+pp
+  
+ggsave("output/MDS_participant_wunifrac.pdf", pp, height = 4, width = 5,useDingbats = FALSE)
+
+
+pp <-  ggplot(subset(df, timepoint=="A"), aes(Axis.1, Axis.2, color=participant))
+pp <-  pp + geom_point(size=3)+scale_y_continuous(limits = c(-3,3))+scale_x_continuous(limits = c(-5,4)) 
+pp <-  pp + ggtitle("MDS on weighted unifrac metric") +
+  theme_bw()
+pp
+ggsave("output/MDS_participant_wunifrac_A.pdf", pp, height = 4, width = 5,useDingbats = FALSE)
+
+```
+
+#### BMI
+```{r}
+
+otu <- data.frame(otu_table(ps.rarefied.spec))
+meta <- data.frame(sample_data(ps.rarefied.spec))
+
+wunifrac_dist <-  plist$wunifrac$dist
+
+ord <- vegan::dbrda(wunifrac_dist ~ timepoint + participant, data =meta)
+anova(ord, by = 'margin')
+
+ord <- vegan::dbrda(wunifrac_dist ~ timepoint + enterotype, data =meta)
+anova(ord, by = 'margin')
+
+ord <- vegan::dbrda(wunifrac_dist ~ enterotype + calculatedBMI + timepoint + participant, data =meta)
+anova(ord, by = 'margin')
+
+
+## subset timepoint A
+
+
+otu <- data.frame(otu_table(ps.rarefied.spec))[,sample_data(ps.rarefied.spec)$timepoint=="A"]
+meta <- data.frame(sample_data(ps.rarefied.spec))[sample_data(ps.rarefied.spec)$timepoint=="A",]
+
+iDist <- rbiom::unifrac(as.matrix(otu), weighted=TRUE, tree=phy_tree(subset_samples(ps.rarefied.spec, timepoint=="A")))
+
+ord <- vegan::dbrda(iDist ~ calculatedBMI, data =meta)
+anova(ord, by = 'margin')
+
+ord <- vegan::dbrda(iDist ~ enterotype, data =meta)
+anova(ord, by = 'margin')
+
+
+ord <- vegan::dbrda(iDist ~ enterotype + calculatedBMI, data =meta)
+anova(ord, by = 'margin')
+
+permanova <- my.adonis(t(otu) ~ timepoint + participant + calculatedBMI,
+               data = meta, permutations=99, method = "wunifrac", phylo = ps.rarefied.spec)
+coef <- coefficients(permanova)["calculatedBMI",]
+top.coef <- coef[rev(order(abs(coef)))[1:10]]
+names(top.coef) <- data.frame(tax_table(ps.rarefied.spec), stringsAsFactors = FALSE)$species[rownames(tax_table(ps.rarefied.spec)) %in% names(top.coef)]
+pdf("output/top_BMIgroup_all.pdf")
+par(mar = c(3, 14, 2, 1))
+barplot(sort(top.coef), horiz = T, las = 1, main = "Top taxa - BMI across timepoint")
+dev.off()
+
+
+top.coef.bmi <- coef[rev(order(abs(coef)))[1:10]]
+
+```
+```{r}
+# coef <- coefficients(permanova)["participant",]
+# top.coef <- coef[rev(order(abs(coef)))[1:10]]
+
+```
+
+
+
+
+### VO2
+
+```{r}
+#### VO2max
+
+wunifrac_dist = plist$wunifrac$dist
+
+ord <- vegan::dbrda(wunifrac_dist ~ calculatedBMI + VO2max_ml.kg.min + timepoint + participant , data = meta)
+anova(ord, by = 'margin')
+
+```
+
+```{r}
+
+ord <- vegan::dbrda(wunifrac_dist ~ calculatedBMI + leptin_ng_ml + timepoint + participant , data = meta)
+anova(ord, by = 'margin')
+
+```
+```{r}
+### most variable taxa ---
+taxdf <- data.frame(tax_table(ps.rarefied.spec)@.Data, check.names = FALSE, stringsAsFactors = FALSE)
+myTaxa <- rownames(taxdf)[taxdf$CV > 1] # select taxa with counts >0
+
+ps.rarefied.spec.var = prune_taxa(myTaxa, ps.rarefied.spec)
+
+wunifrac_dist = phyloseq::distance(ps.rarefied.spec.var, method="unifrac", weighted=T)
+
+ord <- vegan::dbrda(wunifrac_dist ~ VO2max_ml.kg.min + calculatedBMI +  timepoint + participant, data =meta,)
+anova(ord, by = 'margin')
+
+ord <- vegan::dbrda(wunifrac_dist ~ calculatedBMI + leptin_ng_ml + timepoint + participant, data =meta,)
+anova(ord, by = 'margin')
+```
+
+
+
+
+```{r}
+tax.plot <- as.data.frame(as(tax_table(ps.rarefied.spec), "matrix"), stringsAsFactors = FALSE) %>% 
+  rownames_to_column(var = "speciesID") %>% as_tibble()
+
+
+count.plot <- reshape2::melt(otu_table(ps.rarefied.spec))
+colnames(count.plot) <- c("speciesID", "rowname", "abundance")
+count.plot$speciesID <- as.character(count.plot$speciesID)
+
+count.sig <- count.plot[count.plot$speciesID %in% names(top.coef),]
+
+ratiocount.plot <-  count.sig %>%
+  tidyr::separate(rowname, c("participant", "rest"), sep = "A|B", extra="merge") %>%
+  as_tibble() %>%
+  dplyr::select(-rest) %>%
+  group_by(participant, speciesID) %>%
+  arrange(speciesID) %>%
+  mutate(log2ratio = log2(abundance/lag(abundance))) %>%
+  filter(!is.na(log2ratio))
+
+
+meta.plot <- as(sample_data(ps.rarefied.spec), "data.frame") %>% 
+  rownames_to_column() %>% as_tibble()
+
+
+diff.plot <- meta.plot %>%
+  dplyr::select(participant, timepoint, VO2max_ml.kg.min, bmi_group, calculatedBMI, leptin_ng_ml) %>%
+  arrange(participant, desc(timepoint)) %>%
+  group_by(participant) %>%
+  mutate(vo2_diff = -(VO2max_ml.kg.min - lag(VO2max_ml.kg.min)),
+         bmi_diff = -(calculatedBMI - lag(calculatedBMI)),
+         leptin_diff = -(leptin_ng_ml - lag(leptin_ng_ml))) %>%
+  mutate(bmi_group_incl = bmi_group) %>%
+  #select(participant, vo2_diff, bmi_group, bmi_group_incl) %>%
+  filter(!is.na(vo2_diff)) 
+# %>% filter(participant=="F1")
+
+
+df.plot <- left_join(ratiocount.plot, diff.plot)
+df.plot <- left_join(df.plot, tax.plot)
+
+r <- ggplot(df.plot, aes(x=bmi_diff, y = log2ratio))+
+  geom_smooth(method = "lm", alpha = .15, color = "grey", linetype = "dashed") +
+  geom_point(aes(color = bmi_group)) +
+  facet_wrap(~species, scales = "free", ncol = 4, nrow = 6) +
+  ggtitle("Significant changes in microbiome associated with BMI changes before/after intervention") +
+  theme_bw()
+
+r
+
+ggsave("output/permanova_bmi_top10coef.pdf", r, width = 9)
+```
+

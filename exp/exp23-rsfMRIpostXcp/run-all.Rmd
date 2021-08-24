@@ -1,0 +1,120 @@
+---
+title: "postxcp - fonctional connectivity"
+author: "Vanessa Dumeaux"
+date: "5/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{bash}
+/home/shared/tools/xcpEngine/utils/combineOutput \
+-p /home/data/refined/microbiome2brain/MRI/bids_dataset/derivatives/xcpOutput \
+-f "*quality.csv" \
+-o xcp_qavars.csv  # the output file in csv
+```
+
+```{r}
+library (ggplot2)
+
+qc <- read.csv("/home/data/refined/microbiome2brain/MRI/bids_dataset/derivatives/xcpOutput/xcp_qavars.csv")
+
+summary(qc[,-c(1:3)])
+qc <- qc[!qc$id0 == "anatomical",]
+qc$id <- paste(qc$id0, qc$id1, qc$id2, sep="_")
+
+# Box plot with dot plot
+
+ggplot(qc, aes(x=id, y=coregCrossCorr)) + 
+  geom_point() + coord_flip() + theme_bw()
+  
+summary(qc)
+```
+```{r}
+power_rehoz <- read.csv("/home/data/refined/microbiome2brain/MRI/bids_dataset/derivatives/xcpOutput/group/roiquant/power264/anatomicalPower264RegionalMeanRehoZ.csv")
+
+dm.rehoz <- power_rehoz[,grep("Default_mode", colnames(power_rehoz))]
+dm.rehoz$sub.ses <- paste(power_rehoz$id0,power_rehoz$id1, sep = "_")
+#dm.rehoz$id <- paste(dm.rehoz$sub.ses,power_rehoz$id2, sep = "_")
+dm.rehoz$id <- power_rehoz$id2
+dm.rehoz$ses <- power_rehoz$id1
+dm.rehoz$subj <- power_rehoz$id0
+plot(dm.rehoz[,2])
+
+
+dm.plot <- reshape2::melt(dm.rehoz)
+
+library(ggplot2)
+
+p <- ggplot(dm.plot, aes(x = variable, y=value, color = id,  group = id)) + 
+  geom_line() +
+  coord_flip() +
+  facet_grid(ses ~ subj) + theme_bw()
+
+ggsave("output/DM_corr_run1-2.pdf", p, height = 10, width = 10)
+
+
+p1 <- ggplot(subset(dm.plot, id =="run-1"), aes(x = variable, y=value, color = ses,  group = ses)) + 
+  geom_line() +
+  coord_flip() +
+  facet_grid(.~subj) + theme_bw()
+
+p1
+
+ggsave("output/DM_corr_run1-2.pdf", p, height = 10, width = 10)
+
+dm.rehoz.heatmap <- power_rehoz[,grep("Default_mode", colnames(power_rehoz))]
+dm.rehoz.heatmap <- power_rehoz
+
+rownames(dm.rehoz.heatmap) <- paste(power_rehoz$id0, power_rehoz$id1, power_rehoz$id2, sep = "_")
+mat <- dm.rehoz.heatmap[ , !colnames(dm.rehoz.heatmap) %in% c("id0", "id1", "id2")]
+mat <- t(mat)
+rownames(mat) <- gsub("anatomical_rehoZ_mean_power264", "rehoz_DM", rownames(mat))
+
+meta <- data.frame(subject = power_rehoz$id0,
+                   session = power_rehoz$id1,
+                   run = power_rehoz$id2)
+rownames(meta) <- paste(power_rehoz$id0, power_rehoz$id1, power_rehoz$id2, sep = "_")
+
+library(pheatmap)
+pheatmap::pheatmap(mat, annotation_col = meta, scale = "row", filename = "output/heatmap_all.pdf", annotation_names_row = FALSE)
+
+# table(dm.plot$variable)
+# 
+# p4 <- ggplot(subset(dm.plot, id =="run-1"), aes(x = ses, y = value)) +
+#   geom_boxplot() +
+#   geom_point() +
+#   geom_line(aes(group=variable, color = variable), linetype = "dashed") +
+#  # facet_wrap(~variable, scales = "free") +
+#   #scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+#   theme_minimal() +
+#   theme(axis.title = element_blank(), axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8),legend.direction = "vertical")
+# p4
+```
+
+```{r}
+ho_rehoz <- read.csv("/home/data/refined/microbiome2brain/MRI/bids_dataset/derivatives/xcpOutput/group/roiquant/HarvardOxford/anatomicalHarvardOxfordRegionalMeanRehoZ.csv")
+dim(ho_rehoz)
+
+rhc.rehoz <- ho_rehoz[,grep("Hippocampus_R", colnames(ho_rehoz)), drop = FALSE]
+rhc.rehoz$sub.ses <- paste(ho_rehoz$id0,ho_rehoz$id1, sep = "_")
+#dm.rehoz$id <- paste(dm.rehoz$sub.ses,power_rehoz$id2, sep = "_")
+rhc.rehoz$id <- ho_rehoz$id2
+rhc.rehoz$ses <- ho_rehoz$id1
+rhc.rehoz$subj <- ho_rehoz$id0
+
+
+rhc.plot <- reshape2::melt(rhc.rehoz)
+
+library(ggplot2)
+
+p <- ggplot(subset(rhc.plot, id == "run-1"), aes(x = ses, y=value, color = subj,  group = subj)) + 
+  geom_line() +
+  theme_bw()
+
+ggsave("output/rhc_corr_run1-2.pdf", p, height = 10, width = 10)
+
+```
+

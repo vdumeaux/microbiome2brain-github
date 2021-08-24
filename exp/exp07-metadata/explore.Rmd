@@ -1,0 +1,186 @@
+---
+title: "metadata"
+author: "Vanessa Dumeaux"
+date: "6/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+nreads <- read.csv("/home/data/refined/microbiome2brain/microbiome/01-trimmed/nreads.csv", header=TRUE, stringsAsFactors=FALSE)
+nreads$sampleLID <- nreads$sampleID
+nreads$sampleID <- unlist(lapply(strsplit(nreads$sampleID, "_"), "[", 1)) 
+nreads$participant <- substr(nreads$sampleID,1,2)
+nreads$timepoint <- substr(nreads$sampleID,3,3)
+
+
+## other metadata
+final <- read.csv("/home/data/refined/microbiome2brain/metadata/final.txt", sep="\t")
+final$sampleID <- final$microbiomeID
+final <- final %>% dplyr::rename(personLID = participant)
+
+dexa <- read.csv("/home/data/refined/microbiome2brain/metadata/90000152 DEXA DATA.txt", sep="\t")
+dexa$sampleID <- gsub("_", "", dexa$sampleID)
+dexa$sampleID <- gsub("N15200|R15200", "", dexa$sampleID)
+all <- left_join(final, dexa)
+
+
+pdata <- left_join(nreads, all)
+rownames(pdata) <- pdata$sampleLID
+
+
+pdata$age_group <- ifelse(pdata$Age > 60, "old", "young")
+pdata$bmi_group <- ifelse(pdata$timepoint=="A" & pdata$calculatedBMI > 29, "highBMI", "lowBMI")
+pdata$Total_Bone_Mass <- as.numeric(gsub(",","", pdata$Total_Bone_Mass))
+pdata$Total_Fat_Mass <- as.numeric(gsub(",","", pdata$Total_Fat_Mass))
+pdata$Total_Lean_Mass <- as.numeric(gsub(",","", pdata$Total_Lean_Mass))
+pdata$Total_Total_Mass <- as.numeric(gsub(",","", pdata$Total_Total_Mass))
+pdata$fat_lean_ratio <- pdata$Total_Fat_Mass /  pdata$Total_Lean_Mass
+
+saveRDS(pdata, "../../data/metadata.rds")
+
+```
+```{r}
+pdata <- readRDS("../../data/metadata.rds")
+
+
+library(dplyr)
+
+p4 <- pdata %>%
+  select(participant,timepoint, VO2max_ml.kg.min) %>%
+  reshape2::melt() %>%
+  ggplot(aes(x=timepoint, y=value)) +
+  geom_boxplot() +
+  geom_point(aes(color = participant)) +
+  geom_line(aes(group=participant, color = participant), linetype = "dashed") +
+  facet_wrap(~variable, scales = "free") +
+  #scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+  theme_minimal() +
+  theme(axis.title = element_blank(), axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8),legend.direction = "vertical")
+p4
+
+t.test(pdata$VO2max_ml.kg.min ~ pdata$timepoint, paired = TRUE) # NS
+
+p3 <- pdata %>%
+  select(participant,timepoint, calculatedBMI) %>%
+  reshape2::melt() %>%
+  ggplot(aes(x=timepoint, y=value)) +
+  geom_boxplot() +
+  geom_point(aes(color = participant)) +
+  geom_line(aes(group=participant, color = participant), linetype = "dashed") +
+  facet_wrap(~variable, scales = "free") +
+  #scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+  theme_minimal() +
+  theme(axis.title = element_blank(), axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8),legend.direction = "vertical")
+p3
+
+p2 <- pdata %>%
+  select(participant,timepoint, leptin_ng_ml) %>%
+  reshape2::melt() %>%
+  ggplot(aes(x=timepoint, y=value)) +
+  geom_boxplot() +
+  geom_point(aes(color = participant)) +
+  geom_line(aes(group=participant, color = participant), linetype = "dashed") +
+  facet_wrap(~variable, scales = "free") +
+  #scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+  theme_minimal() +
+  theme(axis.title = element_blank(), axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8),legend.direction = "vertical")
+p2
+
+```
+```{r}
+library(tidyverse)
+conn_r <- read.csv("../../data/Total_connectivity_HC-R_Thr0.25_1.csv")
+conn_r$rest <- as.character(conn_r$rest)
+conn_r<- conn_r %>%
+  as.tibble() %>%
+  dplyr::rename(totConn_HCR = totConn) %>%
+  mutate(sampleID = paste0(participant, timepoint),
+         rest = paste0("rest", rest))
+
+connr_df <- spread(conn_r, key = rest, value = totConn_HCR) %>%
+  dplyr::rename(rest1_R = rest1) %>%
+  dplyr::rename(rest2_R = rest2)
+
+
+p1 <- conn_r %>%
+  select(participant,timepoint, rest, totConn_HCR) %>%
+  mutate(variable = paste(timepoint, rest)) %>%
+  #reshape2::melt() %>%
+  ggplot(aes(x=timepoint, y=totConn_HCR)) +
+  geom_boxplot() +
+  geom_point(aes(color = participant)) +
+  geom_line(aes(group=participant, color = participant), linetype = "dashed") +
+  facet_wrap(~rest, scales = "free") +
+  #scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+  theme_minimal() +
+  labs(y = "Total connectivity hippocampus right") +
+  theme(axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8),legend.direction = "vertical")
+p1
+
+ggsave("output/totConn_HC_R.pdf", p1)
+
+library(lme4)
+
+library(lmerTest)
+
+model = lmer(totConn_HCR~timepoint+rest+(1|participant),
+            data=conn_r)
+anova(model)
+rand(model)
+
+
+conn_l <- read.csv("../../data/Total_connectivity_HC-L_Thr0.25_1.csv")
+conn_l$rest <- as.character(conn_l$rest)
+
+conn_l<- conn_l %>%
+  as.tibble() %>%
+  dplyr::rename(totConn_HCL = totConn) %>%
+  mutate(sampleID = paste0(participant, timepoint))
+
+connl_df <- spread(conn_l, key = rest, value = totConn_HCL) %>%
+  dplyr::rename(rest1_L = rest1) %>%
+  dplyr::rename(rest2_L = rest2)
+
+
+p1 <- conn_l %>%
+  select(participant,timepoint, rest, totConn_HCL) %>%
+  mutate(variable = paste(timepoint, rest)) %>%
+  #reshape2::melt() %>%
+  ggplot(aes(x=timepoint, y=totConn_HCL)) +
+  geom_boxplot() +
+  geom_point(aes(color = participant)) +
+  geom_line(aes(group=participant, color = participant), linetype = "dashed") +
+  facet_wrap(~rest, scales = "free") +
+  #scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+  theme_minimal() +
+  labs(y = "Total connectivity hippocampus left") +
+  theme(axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8),legend.direction = "vertical")
+p1
+
+ggsave("output/totConn_HC_L.pdf", p1)
+
+library(lme4)
+
+library(lmerTest)
+
+model = lmer(totConn_HCL~timepoint+rest+(1|participant),
+            data=conn_l)
+anova(model)
+
+rand(model)
+
+```
+```{r}
+pdata <- left_join(pdata, connl_df)
+pdata <- left_join(pdata, connr_df)
+rownames(pdata) <- pdata$sampleLID
+
+saveRDS(pdata, "../../data/metadata.rds")
+```
+

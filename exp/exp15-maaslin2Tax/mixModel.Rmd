@@ -1,0 +1,90 @@
+---
+title: "function"
+author: "Vanessa Dumeaux"
+date: "9/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(phyloseq)
+source("../../src/utilities.R")
+
+kraken_count <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+kraken_count_spec <- tax_glom(kraken_count, "species")
+kraken_ra_spec <-  microbiome::transform(kraken_count_spec, "compositional")
+
+colnames(dna_path) <- rownames(pdata)
+
+```
+
+```{r}
+
+
+rm(tmp.ind) # Remove tmp.ind to clear space
+row.names(dna_path_unstratified) # check the output: looks great
+colSums(dna_path_unstratified) # Check the sample sums to make sure they are in proportion format (0-1) and are all ~1
+# CPM = RA * 1e6
+
+# filter for beta div
+dim(dna_path_unstratified)
+dim(dna_path_unstratified[apply(dna_path_unstratified, 1, function(x) sum(x > 100) > 0.1 * ncol(dna_path_unstratified)), ]) 
+dna_path_unstratified_filt = dna_path_unstratified[apply(dna_path_unstratified, 1, function(x) sum(x > 100) > 0.1 * ncol(dna_path_unstratified)), ]
+dim(dna_path_unstratified_filt)
+#Let's transpose it for easier use downstream
+dna_path_unstratified_filt = data.frame(t(dna_path_unstratified_filt), check.names = F)
+dna_path_unstratified = data.frame(t(dna_path_unstratified), check.names = F)
+
+library(Maaslin2)
+# Run Maaslin2
+#defaults are tss normalization (turning that off since I already did that), log transform, lm test, max_significance=0.25,
+#min_abundance=0, min_prevalence=0.1 (changing this to 0 because I already filtered). 
+Maaslin2(dna_path_unstratified, pdata, "output/timepoint_nonorm",
+         random_effects = "participant", normalization = "none",
+         fixed_effects = "timepoint")
+
+Maaslin2(dna_path_unstratified, pdata, "output/bmi_timepoint",
+         random_effects = "participant",
+         fixed_effects = c("calculatedBMI", "timepoint"))
+
+Maaslin2(dna_path_unstratified, pdata, "output/vo2",
+         random_effects = "participant",
+         fixed_effects = "VO2max_ml.kg.min")
+
+Maaslin2(dna_path_unstratified, pdata, "output/bmi_leptin",
+         random_effects = "participant",
+         fixed_effects = c("calculatedBMI", "leptin_ng_ml"))
+
+Maaslin2(dna_path_unstratified, pdata, "output/vo2_bmiGroup",
+         random_effects = "participant",
+         fixed_effects = c("VO2max_ml.kg.min", "bmi_group"))
+
+Maaslin2(dna_path_unstratified, pdata, "output/vo2_leptin",
+         random_effects = "participant",
+         fixed_effects = c("VO2max_ml.kg.min", "leptin_ng_ml"))
+
+Maaslin2(dna_path_unstratified, pdata, "output/enterotype",
+         random_effects = "participant",
+         fixed_effects = c("enterotype"))
+
+
+
+```
+
+```{r}
+pdata_a <- pdata[pdata$timepoint=="A",]
+dna_path_unstratified_a <- dna_path_unstratified [, pdata$timepoint=="A"]
+
+Maaslin2(dna_path_unstratified_a, pdata_a, "output/a_enterotype",
+         random_effects = "participant",
+         fixed_effects = c("enterotype"))
+
+Maaslin2(dna_path_unstratified_a, pdata_a, "output/a_bmi",
+         random_effects = "participant",
+         fixed_effects = c("calculatedBMI"))
+
+```
+

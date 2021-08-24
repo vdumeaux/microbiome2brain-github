@@ -1,0 +1,52 @@
+---
+title: "explore z-stat"
+author: "Vanessa Dumeaux"
+date: "4/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("fslr")
+library(fslr)
+have.fsl()
+```
+
+```{r}
+datdir <- "../exp21-postFmriprepAnalyses/nipype_mem/nipype-interfaces-fsl-model-FILMGLS"
+e1a_zstat1 <- readNIfTI(file.path(datdir, "e3c241c9f7c0c0f5fa9a2030d37f48bb/results/zstat3.nii.gz"))
+orthographic(e1a_zstat1)
+```
+```{r}
+hist(e1a_zstat1)
+```
+
+```{r}
+data_nozero <- e1a_zstat1
+# Pull out the nonzero values - this will be a vector
+data_nozero = data_nozero[which(data_nozero != 0)]
+
+# We can look at the length to see how many non zero values there are
+length(data_nozero)
+```
+
+```{r}
+hist(data_nozero,main="Unhresholded Z Score Image, No Zeros", breaks=100)
+```
+
+```{r}
+datdir <- "/home/data/refined/microbiome2brain/MRI/bids_dataset/derivatives/xcpOutput/sub-E1/ses-01/run-1/seed/RHC/sub-E1_ses-01_run-1_connectivity_RHCZ_sm5.nii.gz"
+e1a_rhcz <- readNIfTI(datdir)
+orthographic(e1a_rhcz)
+hist(e1a_rhcz)
+datdir <- "/home/data/refined/microbiome2brain/MRI/bids_dataset/derivatives/xcpOutput/sub-E1/ses-02/run-1/seed/RHC/sub-E1_ses-02_run-1_connectivity_RHCZ_sm5.nii.gz"
+e1a_rhcz2 <- readNIfTI(datdir)
+orthographic(e1a_rhcz2)
+hist(e1a_rhcz2)
+
+
+```
+

@@ -1,0 +1,110 @@
+---
+title: "function"
+author: "Vanessa Dumeaux"
+date: "9/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+dna_path = read.csv(file = "/home/data/refined/microbiome2brain/microbiome/01-trimmed/kraken2humann/humann_pathabundance-cpm.tsv", header = T, row.names = 1, check.names = FALSE, sep = "\t")
+
+pdata <- readRDS("../../data/metadata.rds")
+colnames(dna_path) <- rownames(pdata)
+
+# enterotype <- c(E1A = "ET_Prevotella", E1B = "ET_Prevotella",
+#                 E2A = "ET_Bacteroides", E2B = "ET_Bacteroides",
+#                 E3A = "ET_Bacteroides", E3B = "ET_Bacteroides",
+#                 E4A = "ET_Bacteroides", E4B = "ET_Bacteroides",
+#                 E5A = "ET_Firmicutes", E5B = "ET_Bacteroides",
+#                 F1A = "ET_Prevotella", F1B = "ET_Prevotella",
+#                 F2A = "ET_Bacteroides", F2B = "ET_Firmicutes")
+# 
+# pdata$enterotype <-  enterotype[pdata$sampleID]
+
+
+```
+
+```{r message=FALSE, warning=FALSE}
+# Remove species stratifications
+tmp.ind = grep("\\|.*", rownames(dna_path), invert = T) # grep the rows that do not include species stratifications 
+tmp.ind # check the output
+dna_path_unstratified = dna_path[tmp.ind,] # Create a new dataframe with only those unstratified rows
+rm(tmp.ind) # Remove tmp.ind to clear space
+row.names(dna_path_unstratified) # check the output: looks great
+colSums(dna_path_unstratified) # Check the sample sums to make sure they are in proportion format (0-1) and are all ~1
+# CPM = RA * 1e6
+
+# filter for beta div
+dim(dna_path_unstratified)
+dim(dna_path_unstratified[apply(dna_path_unstratified, 1, function(x) sum(x > 100) > 0.1 * ncol(dna_path_unstratified)), ]) 
+dna_path_unstratified_filt = dna_path_unstratified[apply(dna_path_unstratified, 1, function(x) sum(x > 100) > 0.1 * ncol(dna_path_unstratified)), ]
+dim(dna_path_unstratified_filt)
+#Let's transpose it for easier use downstream
+dna_path_unstratified_filt = data.frame(t(dna_path_unstratified_filt), check.names = F)
+dna_path_unstratified = data.frame(t(dna_path_unstratified), check.names = F)
+
+library(Maaslin2)
+# Run Maaslin2
+#defaults are tss normalization (turning that off since I already did that), log transform, lm test, max_significance=0.25,
+#min_abundance=0, min_prevalence=0.1 (changing this to 0 because I already filtered). 
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/rest1R",
+         random_effects = "participant",
+         fixed_effects = c("rest1_R"))
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/timepoint",
+         random_effects = "participant",
+         fixed_effects = "timepoint")
+
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/rest1R_timepoint",
+         random_effects = "participant",
+         fixed_effects = c("rest1_R", "timepoint"))
+
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/rest2R_timepoint",
+         random_effects = "participant",
+         fixed_effects = c("rest2_R", "timepoint"))
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/rest1R_BMI_timepoint",
+         random_effects = "participant",
+         fixed_effects = c("rest1_R", "calculated_BMI", "timepoint"))
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/rest1L_timepoint",
+         random_effects = "participant",
+         fixed_effects = c("rest1_L", "timepoint"))
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/bmi_timepoint",
+         random_effects = "participant",
+         fixed_effects = c("calculatedBMI", "timepoint"))
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/vo2",
+         random_effects = "participant",
+         fixed_effects = "VO2max_ml.kg.min")
+
+Maaslin2(dna_path_unstratified_filt, pdata, "output/kraken2/bmi_leptin",
+         random_effects = "participant",
+         fixed_effects = c("calculatedBMI", "leptin_ng_ml"))
+
+
+
+
+```
+
+```{r}
+pdata_a <- pdata[pdata$timepoint=="A",]
+dna_path_unstratified_a <- dna_path_unstratified [, pdata$timepoint=="A"]
+
+Maaslin2(dna_path_unstratified_a, pdata_a, "output/a_enterotype",
+         random_effects = "participant",
+         fixed_effects = c("enterotype"))
+
+Maaslin2(dna_path_unstratified_a, pdata_a, "output/kraken2/a_bmi",
+         random_effects = "participant",
+         fixed_effects = c("calculatedBMI"))
+
+```

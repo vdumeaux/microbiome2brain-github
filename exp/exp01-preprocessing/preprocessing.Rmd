@@ -1,0 +1,90 @@
+---
+title: "Preprocessing microbiome data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, workspace, message=FALSE, warning=FALSE}
+library(R.utils)
+library(BiocParallel)
+
+source("../../src/preprocessing.R")
+
+ncores <- 24
+register(MulticoreParam(workers=ncores))
+
+# data directory
+fqdir <- "/home/data/raw/microbiome2brain/microbiome/01-raw/191129_A00516_0074_BHJ5C3DRXX/fastq/HJ5C3DRXX"
+
+datdir <- "/home/data/refined/microbiome2brain/microbiome"
+
+sample.table <- read.table("/home/data/raw/microbiome2brain/microbiome/00-metadata/A00516_0074_SampleName_TableConversion.txt", sep="\t", stringsAsFactors = FALSE)
+
+```
+
+
+
+
+```{r}
+bplapply(1:nrow(sample.table), longranger.basic)
+```
+
+```{r}
+bplapply(sample.table$V2, deinterleave.fastq)
+```
+
+```{r}
+bplapply(sample.table$V2, trimming)
+```
+
+
+```{r}
+bplapply(sample.table$V2[1:3], clouspades)
+bplapply(sample.table$V2[4:6], clouspades)
+bplapply(sample.table$V2[7:8], clouspades)
+bplapply(sample.table$V2[9:11], clouspades)
+bplapply(sample.table$V2[12:14], clouspades)
+
+```
+
+```{r}
+datdir <- "/home/data/refined/microbiome2brain/microbiome"
+
+sample.names <- list.dirs("/home/data/refined/microbiome2brain/microbiome/01-trimmed", recursive = FALSE, full.names = FALSE)
+
+
+contigs <- list.files(file.path(datdir, "01-trimmed"), pattern = "^contigs.fasta$", full.names = TRUE, recursive = TRUE)
+
+sn <- unlist(lapply(strsplit(contigs, "/"), "[", 8))
+
+# 
+# ref.fasta <- list.files("/home/data/microbiome2brain/microbiome/longranger/E1A_B1/outs/cloudspades/quast_results/results_2020_01_07_14_03_57/quast_downloaded_references", pattern = ".fasta$",full.names = TRUE, recursive = FALSE)
+
+metaquast <- function(x){
+  system(capture.output(
+    cat("/home/shared/tools/quast-5.0.2/metaquast.py", contigs[x], 
+        "-o", 
+        paste0("/home/data/refined/microbiome2brain/microbiome/01-trimmed/", sn[x], "/metaquast/", sn[x], "_quast_results"))
+    ))
+}
+
+
+bplapply(1, metaquast)
+
+metaquast <- function(x){
+  system(capture.output(
+    cat("/home/shared/tools/quast-5.0.2/metaquast.py", contigs[x], 
+        "-r /home/data/refined/microbiome2brain/microbiome/01-trimmed/E1A_B1/E1A_B1_quast_results/quast_downloaded_references",
+        "-o", 
+        paste0("/home/data/refined/microbiome2brain/microbiome/01-trimmed/", sn[x], "/", sn[x], "_quast_results"))
+    ))
+}
+
+bplapply(1:length(contigs), metaquast)
+
+
+```

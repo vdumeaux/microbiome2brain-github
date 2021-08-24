@@ -1,0 +1,238 @@
+---
+title: "deseq2"
+author: "Vanessa Dumeaux"
+date: "9/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+
+source("../../src/utilities.R")
+
+pdata <- readRDS("../../data/metadata.rds")
+
+kraken_count_spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+ps.rarefied.spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/ps.rarefied.spec.rds")
+library(DESeq2)
+
+kraken_count_spec_filt = filter_taxa(ps.rarefied.spec, function(x) sum(x > 10) > (0.7*length(x)), TRUE)
+#kraken_count_spec_filt = subset_samples(kraken_count_spec_filt, participant != "F1")
+```
+
+```{r}
+
+alpha = 0.2
+
+sample_data(kraken_count_spec_filt) <- sample_data(data.frame(pdata,row.names=sample_names(kraken_count_spec_filt),
+  stringsAsFactors=FALSE))
+
+sample_data(ps.rarefied.spec) <- sample_data(data.frame(pdata,row.names=sample_names(kraken_count_spec_filt),
+  stringsAsFactors=FALSE))
+
+
+## bmi
+ds = phyloseq_to_deseq2(kraken_count_spec_filt, ~ participant + timepoint + calculatedBMI)
+ds = DESeq(ds)
+res.bmi = results(ds, name="calculatedBMI", alpha=alpha)
+res.bmi = res.bmi[order(res.bmi$padj, na.last=NA), ]
+res.bmi_sig = res.bmi[(res.bmi$padj < alpha & !is.na(res.bmi$padj)), ]
+res.bmi_sig
+
+## vo2max (adjusted for BMI)
+ds = phyloseq_to_deseq2(kraken_count_spec_filt, ~ participant + timepoint + calculatedBMI + VO2max_ml.kg.min)
+ds = DESeq(ds)
+res.vo2 = results(ds, name="VO2max_ml.kg.min", alpha=alpha)
+res.vo2 = res.vo2[order(res.vo2$padj, na.last=NA), ]
+res.vo2_sig = res.vo2[(res.vo2$padj < alpha & !is.na(res.vo2$padj)), ]
+res.vo2_sig
+
+## leptin (adjusted for BMI)
+ds = phyloseq_to_deseq2(kraken_count_spec_filt, ~ participant + timepoint + calculatedBMI + leptin_ng_ml)
+ds = DESeq(ds)
+res.leptin = results(ds, name="leptin_ng_ml", alpha=alpha)
+res.leptin = res.leptin[order(res.leptin$padj, na.last=NA), ]
+res.leptin_sig = res.leptin[(res.leptin$padj < alpha& !is.na(res.leptin$padj)), ]
+res.leptin_sig
+
+
+## rest1 (adjusted for BMI)
+ds = phyloseq_to_deseq2(kraken_count_spec_filt, ~ participant + timepoint + calculatedBMI + rest1_R)
+ds = DESeq(ds)
+res.rest1R = results(ds, name="rest1_R", alpha=alpha)
+res.rest1R = res.rest1R[order(res.rest1R$padj, na.last=NA), ]
+res.rest1R_sig = res.rest1R[(res.rest1R$padj < alpha& !is.na(res.rest1R$padj)), ]
+res.rest1R_sig
+
+ds = phyloseq_to_deseq2(kraken_count_spec_filt, ~ participant + timepoint + calculatedBMI + sum.voxel.rest1)
+ds = DESeq(ds)
+res.rest1R.voxel = results(ds, name="sum.voxel.rest1", alpha=alpha)
+res.rest1R.voxel = res.rest1R.voxel[order(res.rest1R.voxel$padj, na.last=NA), ]
+res.rest1R.voxel_sig = res.rest1R.voxel[(res.rest1R.voxel$padj < alpha& !is.na(res.rest1R.voxel$padj)), ]
+res.rest1R.voxel_sig
+
+ds.age = phyloseq_to_deseq2(kraken_count_spec_filt, ~ Age + timepoint + calculatedBMI + sum.voxel.rest1)
+ds = DESeq(ds.age)
+res.rest1R.age = results(ds, name="sum.voxel.rest1", alpha=alpha)
+res.rest1R.age = res.rest1R[order(res.rest1R$padj, na.last=NA), ]
+res.rest1R_sig.age = res.rest1R[(res.rest1R$padj < alpha& !is.na(res.rest1R$padj)), ]
+res.rest1R_sig.age
+
+## rest2 (adjusted for BMI)
+ds = phyloseq_to_deseq2(kraken_count_spec_filt, ~ participant + timepoint + calculatedBMI + rest1_L)
+ds = DESeq(ds)
+res.rest1L = results(ds, name="rest1_L", alpha=alpha)
+res.rest1L = res.rest1L[order(res.rest1L$padj, na.last=NA), ]
+res.rest1L_sig = res.rest1L[(res.rest1L$padj < alpha& !is.na(res.rest1L$padj)), ]
+res.rest1L_sig
+
+```
+
+
+```{r}
+library(forcats)
+library(ggsci)
+library(RColorBrewer)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+
+tax.plot <- as.data.frame(as(tax_table(ps.rarefied.spec), "matrix"), stringsAsFactors = FALSE) %>% 
+  rownames_to_column(var = "speciesID") %>% as_tibble()
+
+
+concat_results <- rbind(res.bmi_sig, res.vo2_sig, res.leptin_sig, res.rest1R.voxel_sig, res.rest1R_sig, res.rest1L_sig) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "speciesID") %>%
+  as_tibble() %>%
+  mutate(variable = c(rep("bmi", nrow(res.bmi_sig)), rep("vo2", nrow(res.vo2_sig)), rep("leptin",nrow(res.leptin_sig)), rep("rest1Rvoxel",nrow(res.rest1R.voxel_sig)), rep("rest1R",nrow(res.rest1R_sig)), rep("rest1L",nrow(res.rest1L_sig)))) %>%
+  separate(speciesID, c("speciesID","second"), sep = "\\.") %>% select(-second) %>%
+  select(speciesID, variable, log2FoldChange)
+
+concat_results$variable <- factor(concat_results$variable, levels = c("bmi", "vo2", "leptin", "rest1Rvoxel", "rest1R", "rest1L"),ordered = TRUE)
+
+df.plot <- left_join(concat_results, tax.plot) %>%
+    filter(!is.na(species))
+
+cols <- colorRampPalette(brewer.pal(9, "Set1"))
+ngroups <- length(unique(df.plot$phylum))
+
+psig <- ggplot(df.plot, aes(x=fct_reorder(species, log2FoldChange), y=log2FoldChange, fill=phylum)) +
+  geom_bar(stat="identity") +
+  
+  scale_fill_manual(values = cols(ngroups), na.value = "grey") +
+#scale_fill_npg(na.value = "grey") +
+  theme_minimal() +
+  facet_wrap(~variable, scales = "free", ncol = 3) +
+  guides(fill = guide_legend(ncol = 1)) +
+  theme(axis.title.y = element_blank(), ) +
+  coord_flip()
+psig
+
+ggsave("output/sig_all_adjBMI_xtimepoint_participant_fdr0.2.pdf", psig, width = 20, height = 10)
+#ggsave("output/sig_all_adjBMI_xtimepoint_participant_fdr0.1_noF1.pdf", psig, width = 20, height = 10)
+
+
+```
+
+```{r}
+
+count.plot <- reshape2::melt(otu_table(ps.rarefied.spec))
+colnames(count.plot) <- c("speciesID", "rowname", "abundance")
+count.plot$speciesID <- as.character(count.plot$speciesID)
+
+
+count.sig <- left_join(concat_results, count.plot)
+
+ratiocount.plot <-  count.sig %>%
+  tidyr::separate(rowname, c("participant", "second"), sep = "A|B") %>% select(-second) %>%
+  group_by(participant, speciesID) %>%
+  arrange(speciesID) %>%
+  mutate(log2ratio = log2(abundance/lag(abundance))) %>%
+  filter(!is.na(log2ratio))
+
+
+meta.plot <- as(sample_data(ps.rarefied.spec), "data.frame") %>% 
+  rownames_to_column() %>% as_tibble()
+
+
+
+diff.plot <- meta.plot %>%
+  select(participant, timepoint, VO2max_ml.kg.min, bmi_group, calculatedBMI, leptin_ng_ml, sum.zscore.rest1, rest1_R, rest1_L) %>%
+  arrange(participant, desc(timepoint)) %>%
+  group_by(participant) %>%
+  mutate(vo2_diff = -(VO2max_ml.kg.min - lag(VO2max_ml.kg.min)),
+         bmi_diff = -(calculatedBMI - lag(calculatedBMI)),
+         leptin_diff = -(leptin_ng_ml - lag(leptin_ng_ml)),
+         rest1Rvox_diff = -(sum.zscore.rest1 - lag(sum.zscore.rest1)),
+         rest1R_diff = -(rest1_R - lag(rest1_R)),
+         rest1L_diff = -(rest1_L - lag(rest1_L)))%>%
+  mutate(bmi_group_incl = bmi_group) %>%
+  #select(participant, vo2_diff, bmi_group, bmi_group_incl) %>%
+  filter(!is.na(vo2_diff)) 
+# %>% filter(participant=="F1")
+
+
+df.plot <- left_join(ratiocount.plot, diff.plot)
+df.plot <- left_join(df.plot, tax.plot)
+
+
+q <- ggplot(subset(df.plot, variable == "vo2"), aes(x=vo2_diff, y = log2ratio))+
+  geom_smooth(method = "lm", alpha = .15, color = "grey", linetype = "dashed") +
+  geom_point(aes(color = bmi_group)) +
+  facet_wrap(~species, scales = "free", ncol = 4) +
+  ggtitle("Significant changes in microbiome associated with VO2max changes before/after intervention (adjusted for BMI)") +
+  theme_bw()
+
+r <- ggplot(subset(df.plot, variable == "bmi"), aes(x=bmi_diff, y = log2ratio))+
+  geom_smooth(method = "lm", alpha = .15, color = "grey", linetype = "dashed") +
+  geom_point(aes(color = bmi_group)) +
+  facet_wrap(~species, scales = "free", ncol = 4) +
+  ggtitle("Significant changes in microbiome associated with BMI changes before/after intervention") +
+  theme_bw()
+
+s <- ggplot(subset(df.plot, variable == "leptin"), aes(x=leptin_diff, y = log2ratio))+
+  geom_smooth(method = "lm", alpha = .15, color = "grey", linetype = "dashed") +
+  geom_point(aes(color = bmi_group)) +
+  facet_wrap(~species, scales = "free", ncol = 4) +
+  ggtitle("Significant changes in microbiome associated with leptin concentration changes before/after intervention (adjusted for BMI)") +
+  theme_bw()
+
+v <- ggplot(subset(df.plot, variable == "rest1R"), aes(x=rest1R_diff, y = log2ratio))+
+  geom_smooth(method = "lm", alpha = .15, color = "grey", linetype = "dashed") +
+  geom_point(aes(color = bmi_group)) +
+  facet_wrap(~species, scales = "free", ncol = 3) +
+  ggtitle("Significant changes in microbiome associated with HC-R connectivity changes before/after intervention (adjusted for BMI)") +
+  theme_bw()
+
+vv <- ggplot(subset(df.plot, variable == "rest1Rvoxel"), aes(x=rest1Rvox_diff, y = log2ratio))+
+  geom_smooth(method = "lm", alpha = .15, color = "grey", linetype = "dashed") +
+  geom_point(aes(color = bmi_group)) +
+  facet_wrap(~species, scales = "free", ncol = 3) +
+  ggtitle("Significant changes in microbiome associated with HC-R connectivity changes before/after intervention (adjusted for BMI)") +
+  theme_bw()
+
+
+w <- ggplot(subset(df.plot, variable == "rest1L"), aes(x=rest1L_diff, y = log2ratio))+
+  geom_smooth(method = "lm", alpha = .15, color = "grey", linetype = "dashed") +
+  geom_point(aes(color = bmi_group)) +
+  facet_wrap(~species, scales = "free", ncol = 4) +
+  ggtitle("Significant changes in microbiome associated with HC-L connectivity changes before/after intervention (adjusted for BMI)") +
+  theme_bw()
+
+
+all.plots <- ggpubr::ggarrange(r, q, s, v, w,
+          labels = c("A", "B", "C", "D", "E"),
+          ncol = 1, nrow = 5, heights = c(3, 2, 1.5, 1.5, 1))
+
+ggsave("output/all_bmi_aloneAdjusted_fdr0.15.pdf", all.plots, width = 10, height = 31)
+
+ggsave("output/rest1R_vox.pdf", vv, width = 15)
+ggsave("output/rest1R.pdf", v, width = 15)
+```

@@ -1,0 +1,100 @@
+---
+title: "compare"
+author: "Vanessa Dumeaux"
+date: "6/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+
+source("../../src/utilities.R")
+
+pdata <- readRDS("../../data/metadata.rds")
+
+ps.rarefied.spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/ps.rarefied.spec.rds")
+
+```
+
+# Rarefied and plot alpha-diversity
+```{r}
+richness.tb <- estimate_richness(ps.rarefied.spec)
+
+#Chao1 (richness) and shannon (richness + eveness)
+
+p3 <- plot_richness(ps.rarefied.spec, x="timepoint",color="participant", measures=c("Chao1", "Shannon"))
+
+df <- p3$data
+
+p4 <- ggplot(df, aes(x=timepoint, y=value)) +
+  geom_boxplot() +
+  geom_point(aes(color = participant)) +
+  geom_line(aes(group=participant, color = participant), linetype = "dashed") +
+  facet_wrap(~variable, scales = "free") +
+  #scale_color_manual(values = c("#D55E00", "#0072B2")) + 
+  theme_minimal() +
+  theme(axis.title = element_blank(), axis.text = element_text(size = 8), legend.text = element_text(size=8), legend.title = element_text(size=8),legend.direction = "vertical")
+
+ggsave("output/rarefied_species_Chao1_Shannon_v3.pdf",p4, units = "cm", width = 10, height = 5)
+
+choa1.a <- subset(df, variable == "Chao1" & timepoint == "A")$value
+choa1.b <- subset(df, variable == "Chao1" & timepoint == "B")$value
+
+wilcox.test(choa1.a, choa1.b, paired=TRUE) 
+#t.test(subset(df, variable == "Chao1")$value ~ subset(df, variable == "Chao1")$timepoint)
+
+```
+
+```{r}
+# adjust for sequencing depth
+# total = median(sample_sums((ps.rarefied.spec))
+# standf = function(x, t=total) round(t * (x / sum(x)))
+# gps = transform_sample_counts(GP, standf)
+
+gpsf = filter_taxa(ps.rarefied.spec, function(x) sd(x)/mean(x) > 3.0, TRUE)
+p1 <- plot_heatmap(gpsf, "nMDS", "wunifrac", sample.label = "sampleID", taxa.label = "Family",low="#66CCFF", high="#000033", na.value="white", first.sample = "E2A_A3")
+
+# p1 <- plot_heatmap(ps.rarefied.spec, "nMDS", "bray", sample.label = "sampleID", taxa.label = "Family",low="#66CCFF", high="#000033", na.value="white", first.sample = "E2A_A3")
+# 
+
+#plot_heatmap(ps.rarefied.spec, method = "DPCoA", distance = "dpcoa")
+```
+
+```{r}
+myTaxa = names(sort(taxa_sums(ps.rarefied.spec), decreasing = TRUE)[1:25])
+ex1 = prune_taxa(myTaxa, ps.rarefied.spec)
+plot_tree(ex1, color = "participant", shape = "timepoint", label.tips = "species", ladderize = "left", justify = "left" , size = "Abundance")
+plot_tree(ex1, color = "timepoint", label.tips = "species", ladderize = "left", justify = "left" , size = "Abundance", text.size = 3 )
+plot_tree(ex1, color = "Age", label.tips = "species", ladderize = "left", justify = "left" , size = "Abundance")
+plot_tree(ex1, color = "calculatedBMI", label.tips = "species", ladderize = "left", justify = "left" , size = "Abundance")
+
+```
+
+
+
+
+```{r}
+# kraken_count <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+# 
+# raw.counts <- as(otu_table(kraken_count_spec), "matrix")
+# count <- edgeR::cpm(raw.counts)
+# 
+# source("../../../chipseqR/R/bresat.R")
+# df <- data.frame(as(sample_data(kraken_count_spec), "matrix"))
+# rownames(df) <- colnames(count)
+# 
+# bs <- sig.ranksum(count, ns=1:nrow(df.exprs), full.return=TRUE)
+# pheatmap::pheatmap(bs$dat, cluster_rows=FALSE, show_rownames=FALSE, scale="row",color=rev(colorRampPalette(rev(brewer.pal(n = 8, name ="Blues")))(200)),
+#                    cluster_cols=FALSE, fontsize = 6, 
+#                    #main = paste0("significant peaks ", nrow(bs$dat)),
+#                    annotation_col = df[bs$pat.order,],
+#                    filename = "output/bresat_kraken_count_spec.pdf")
+
+```
+

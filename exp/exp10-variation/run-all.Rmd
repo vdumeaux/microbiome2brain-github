@@ -1,0 +1,202 @@
+---
+title: "misc"
+author: "Vanessa Dumeaux"
+date: "7/22/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(curatedMetagenomicData)
+  library(phyloseq)
+  library(dplyr)
+  library(ggplot2)
+  library(ape)
+  library(TreeSummarizedExperiment)
+  library(dplyr)
+  library(treeclimbR)
+  library(ggtree)
+  library(TreeHeatmap)
+  library(ggplot2)
+  library(viridis)
+  library(ggnewscale)
+  library(microbiome)
+  library(microbiomeutilities)
+  library(ggpubr)
+})
+
+```
+
+```{r}
+kraken_ra <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_ra.rds")
+```
+
+# Download data: kraken counts and phylogenetic species tree
+```{r}
+kraken_count <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+
+kraken_count_spec <- tax_glom(kraken_count, "species")
+
+
+tree2 <- read_tree("/home/data/refined/microbiome2brain/microbiome/R/phyloT_generated_tree_1593538485_newick.nwk")
+tree2$edge.length <- ape::compute.brlen( tree2, 1 )$edge.length
+out.group <- "1618255"
+
+new.tree <- ape::root(tree2, outgroup=out.group, resolve.root=TRUE)
+phy_tree(kraken_count_spec) <- new.tree
+saveRDS(kraken_count_spec, "/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+summarize_phyloseq(kraken_count_spec)
+```
+```{r}
+kraken_count_spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+top <- prune_taxa(names(sort(taxa_sums(kraken_count_spec), decreasing = TRUE)[1:50]), kraken_count_spec)
+fam10 <- tax_table(top)[,"family"]
+
+topfam <- unique(as.character(fam10[,1]))
+topfam <- topfam[!is.na(topfam)]
+
+tax.spec <- as.data.frame(as(tax_table(kraken_count_spec), "matrix"), stringsAsFactors = FALSE)
+tax.spec$family2 <- ifelse(tax.spec$family %in% topfam, tax.spec$family, "Other")
+tax.spec$phylum2 <- gsub(" .*", "", tax.spec$phylum)
+tax.spec <- tax.spec[, c("no rank", "superkingdom", "phylum2", "phylum",
+                         "class", "order", "family2", "family", "genus", "species", "species group")]
+
+tax_table(kraken_count_spec) <- as.matrix(tax.spec)
+saveRDS(kraken_count_spec, "/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+
+```
+
+
+
+```{r}
+library(phyloseq)
+source("../../src/utilities.R")
+kraken_count_spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+p0 <- my_plot_taxa_cv(kraken_count_spec, plot.type = "scatter")
+p1 <- p0$cvplot + 
+  scale_x_log10() + 
+  geom_point(aes()) + 
+  #labs(color = p0$cvplot$data$superkingdom) +
+  facet_wrap(p0$cvplot$data$superkingdom, ncol = 2) +
+  theme(legend.position = "bottom") +
+  stat_binhex()
+p1
+ggsave("output/fig1.pdf", p1, width = 6, height = 7,)
+
+
+vir <- subset_taxa(kraken_count_spec, superkingdom=="Viruses")
+p0 <- my_plot_taxa_cv(vir, plot.type = "scatter")
+p1 <- p0 + scale_x_log10() + geom_point(aes(color = order)) + labs(color = "Order") +
+  theme(legend.position = "bottom")
+p1
+
+ggsave("output/virus_fig.pdf", p1, width = 10, height = 20)
+
+arch <- subset_taxa(kraken_count_spec, superkingdom=="Archaea")
+p0 <- my_plot_taxa_cv(arch, plot.type = "scatter")
+p2 <- p0 + scale_x_log10() + geom_point(aes(color = order)) + labs(color = "Order") +
+  theme(legend.position = "bottom")
+p2
+
+ggsave("output/archaea_fig.pdf", p2, width = 10, height = 10)
+
+
+euk <- subset_taxa(kraken_count_spec, superkingdom=="Eukaryota")
+p0 <- my_plot_taxa_cv(euk, plot.type = "scatter")
+p3 <- p0 + scale_x_log10() + geom_point(aes(color = phylum2)) + labs(color = "Phylum") +
+  theme(legend.position = "bottom")
+
+ggsave("output/eukaryota_fig.pdf", p3, width = 10, height = 10)
+
+
+
+
+p2 <- p0 + scale_x_log10() + geom_point(aes(color = phylum2)) + labs(color = "Phylum") + 
+  theme(legend.position = "bottom")
+
+figure <- ggarrange(p1, p2,
+                    labels = c("A", "B"),
+                    ncol = 1, nrow = 2, heights = c(7, 10))
+ggsave("output/fig.pdf", figure, width = 10, height = 20)
+
+ggexport(p1, p2, filename = "output/CV_species.pdf", width = 10)
+```
+
+
+```{r}
+kraken_count_genus <- tax_glom(kraken_count_spec, "superkingdom")
+
+p0_g <- my_plot_taxa_cv(kraken_count_genus, plot.type = "scatter")
+
+p1_g <- p0_g + scale_x_log10() + geom_point(aes(color = superkingdom)) + labs(color = "Superkingdom") +
+  theme(legend.position = "bottom")
+ggsave("output/cv_superkindom.pdf", p1_g)
+
+p2_g <- p0_g + scale_x_log10() + geom_point(aes(color = phylum2)) + labs(color = "Phylum") + 
+  theme(legend.position = "bottom")
+p2_g
+
+
+```
+```{r}
+
+```
+
+## Calculate compositional version of the data (relative abundances)
+```{r}
+
+
+kraken_rel <- microbiome::transform(kraken_count_spec, "compositional")
+kraken_rel
+summarize_phyloseq(kraken_rel)
+```
+
+## bimodality analyses
+
+```{r}
+library(microbiome)
+# Merge rare taxa to speed up examples
+# pseq <- aggregate_rare(kraken_rel, level = "genus", detection = .1/100, prevalence = 10/100)
+
+
+
+kraken_rel0 <- subset_samples(kraken_rel, timepoint == "A")
+kraken_rel1 <- subset_samples(kraken_rel, timepoint == "B")
+
+```
+
+```{r}
+kraken_count_spec0 <- subset_samples(kraken_count_spec, time == 0)
+kraken_count_spec1 <- subset_samples(kraken_count_spec, time == 1)
+
+kraken_count_spec0 <- baseline(kraken_count_spec)
+# Bimodality is better estimated from log10 abundances
+kraken_clr0 <- microbiome::transform(kraken_count_spec0, "clr")
+# 
+# bimodality.score <- microbiome:::multimodality(abundances(kraken_clr0),
+#                                bs.iter = 20, peak.threshold = 10, min.density = 10)
+# bimodality_clr0 <- bimodality(kraken_clr0, bs.iter = 20)
+
+intermediate.stability <- intermediate_stability(kraken_count_spec, output = "scores")
+
+unimodal  <-names(intermediate.stability)[which(intermediate.stability==min(intermediate.stability))]
+bimodal  <- names(intermediate.stability)[which(intermediate.stability==max(intermediate.stability))]
+
+library(ggplot2)
+theme_set(theme_bw(20))
+p1 <- plot_density(kraken_clr0, variable = unimodal) 
+p2 <- plot_density(kraken_clr0, variable = bimodal) 
+library(gridExtra)
+library(ggplot2)
+grid.arrange(p1, p2, nrow = 1)
+
+```
+

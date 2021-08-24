@@ -1,0 +1,183 @@
+---
+title: "sample size"
+author: "Vanessa Dumeaux"
+date: "2/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("simr")
+library(simr)
+library(phyloseq)
+library(dplyr)
+library(DESeq2)
+
+
+#pdata <- readRDS("../../data/metadata.rds")
+
+
+ps.rarefied.spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/ps.rarefied.spec.rds")
+
+rarefied_count_spec_filt = filter_taxa(ps.rarefied.spec, function(x) sum(x > 10) > (0.7*length(x)), TRUE)
+
+
+```
+
+```{r}
+#BiocManager::install("RnaSeqSampleSize")
+library(RnaSeqSampleSize)
+
+set.seed(123)
+
+filt.matrix <- as(otu_table(rarefied_count_spec_filt), "matrix")
+dim(filt.matrix)
+pdata <- as(sample_data(rarefied_count_spec_filt), "data.frame")
+pdata$rest1R_binary <- ifelse(pdata$rest1_R<median(pdata$rest1_R), "low_connHC_R", "high_connHC_R")
+#Estiamete the gene read count and dispersion distribution
+dataMatrixDistribution <- est_count_dispersion(filt.matrix, group=pdata$timepoint)
+## Disp = 0.52734 , BCV = 0.7262
+
+dataMatrixDistributionRest <- est_count_dispersion(filt.matrix, group=pdata$rest1R_binary)
+## Disp = 0.46679 , BCV = 0.6832
+
+
+dataMatrixDistributionA <- est_count_dispersion(filt.matrix[,pdata$timepoint=="A"], group=pdata$bmi_group[pdata$timepoint=="A"])
+
+dataMatrixDistributionA <- est_count_dispersion(filt.matrix[,pdata$timepoint=="A"], group=pdata$age_group[pdata$timepoint=="A"])
+
+## Disp = 0.47824 , BCV = 0.6915 
+
+
+# dataMatrixDistribution<-est_count_dispersion(filt.matrix, group=sample_data(kraken_count_spec_filt)$participant)
+###Disp = 0.12794 , BCV = 0.3577 
+
+#Power estimation by read count and dispersion distribution
+est_power_distribution(n=35,f=0.2,rho=2, distributionObject=dataMatrixDistribution, repNumber=3200)
+
+results1 <- sample_size(
+  power = 0.8,
+  m = 4000,
+  m1 = 100,
+  f = 0.15,
+  k = 1,
+  w = 1,
+  rho = 2,
+  lambda0 = 50,
+  phi0 = 1,
+  showMessage = FALSE
+)
+result10 <- est_power_curve(n = 100, f = 0.15, rho = 2, lambda0 = 10, phi0 = 0.5)
+result50 <- est_power_curve(n = 100, f = 0.15, rho = 2, lambda0 = 50, phi0 = 0.52734)
+result100 <- est_power_curve(n = 100, f = 0.15, rho = 2, lambda0 = 100, phi0 = 0.52734)
+
+
+plot_power_curve(result10)
+plot_power_curve(list(result10, result50, result100))
+```
+```{r}
+library(simr)
+
+
+model1 <- lmer(rest1_R ~ timepoint + (1|participant), data=pdata)
+powerSim(model1, nsim = 1000)
+
+fixef(model1)["timepointB"]
+fixef(model1) <- 0.2
+
+
+# pval <- unlist(lapply(models, function(x){
+#   t <- summary(x)$coef[2,4]}))
+# qval <- p.adjust(pval)
+# summary(pval[qval<0.1])
+# 
+# coefs <- unlist(lapply(models, function(x){
+#   t <- summary(x)$coef[2,1]}))
+# summary(abs(coefs[qval<0.1]))
+# 
+# summary(coefs)
+```
+```{r}
+#BiocManager::install('variancePartition')
+# kraken_count_spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+# kraken_ra_spec <-  microbiome::transform(kraken_count_spec, "compositional")
+# cpm.spec <- as(otu_table(kraken_ra_spec), "matrix")*10^6
+# cpm.spec.filt <- cpm.spec[apply(cpm.spec, 1, function(x) sum(x > 50) > 0.1 * ncol(cpm.spec)), ]
+# dim(cpm.spec.filt)
+
+
+
+library(variancePartition)
+form <- ~ rest1_R + calculatedBMI + VO2max_ml.kg.min + (1 | participant)
+varPart <- fitExtractVarPartModel(filt.matrix, form, pdata)
+vp <- sortCols(varPart)
+plotPercentBars(vp[1:10,])
+plotVarPart(vp)
+# vpSummaries1 <- fitVarPartModel(cpm.spec, form, pdata, fxn=summary )
+# rest1R.est <- unlist(lapply(vpSummaries1, function(x){
+#   x$coefficients["rest1_R", "Estimate"]}))
+
+
+
+form <- ~ rest1_R + calculatedBMI + VO2max_ml.kg.min + Age
+cpm.specA <- as(filt.matrix, "matrix")[,pdata$timepoint=="A"]
+cpm.specA <- cpm.specA[apply(cpm.specA, 1, function(x) sum(x) > 0), ]
+varPart <- fitExtractVarPartModel(cpm.specA, form, pdata[pdata$timepoint=="A",])
+vp <- sortCols(varPart)
+pdf("output/variance_barplot_topBacteria.pdf")
+plotPercentBars(vp[1:10,])
+plotVarPart( vp )
+dev.off()
+#vpSummaries2 <- fitVarPartModel(cpm.spec, form, pdata, fxn=summary )
+
+
+form <- ~ rest1R_diff + bmi_diff + vo2_diff 
+cpm.specA <- as(filt.matrix, "matrix")[,pdata$timepoint=="A"]
+cpm.specA <- cpm.specA[apply(cpm.specA, 1, function(x) sum(x) > 0), ]
+
+df.diff <- df.plot[df.plot$timepoint=="A",]
+df.diff <- df.diff[!duplicated(df.diff$participant),]
+varPart <- fitExtractVarPartModel(cpm.specA, form, df.diff)
+vp <- sortCols(varPart)
+pdf("output/variance_barplot_topBacteria_diff.pdf")
+plotPercentBars(vp[1:10,])
+plotVarPart( vp )
+dev.off()
+
+
+cc.plot<- canCorPairs(form, df.diff)
+
+# Plot correlation matrix
+plotCorrMatrix(cc.plot, cexRow=0.8, cexCol=0.8)
+
+
+vp.rs <- vp[order(vp$rest1R_diff, decreasing = TRUE),]
+plotPercentBars(vp.rs[1:10,])
+plotPercentBars(vp.rs[rownames(vp.rs) %in% c("726", "28025", "152480", "487175", "469610","1596"),])
+
+
+form <- ~ rest1_R + calculatedBMI + VO2max_ml.kg.min + Age
+
+cc.plot<- canCorPairs(form, pdata[pdata$timepoint=="A",])
+
+# Plot correlation matrix
+plotCorrMatrix(cc.plot, cexRow=0.8, cexCol=0.8)
+
+vp.rs <- vp[order(vp$rest1_R, decreasing = TRUE),]
+plotPercentBars(vp.rs[1:10,])
+
+plotPercentBars(vp.rs[rownames(vp.rs) %in% c("726", "28025", "152480", "487175", "469610","1596"),])
+
+
+tax_table(rarefied_count_spec_filt)[rownames(tax_table(rarefied_count_spec_filt)) %in% rownames(vp.rs[1:10,]),]
+
+cc.plot<- canCorPairs(form, pdata[pdata$timepoint=="A" & pdata$age_group=="young",])
+
+# Plot correlation matrix
+plotCorrMatrix(cc.plot, cexRow=0.8, cexCol=0.8)
+
+```
+

@@ -1,0 +1,198 @@
+---
+title: "metabat"
+author: "Vanessa Dumeaux"
+date: "5/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r setup, include=FALSE}
+library(R.utils)
+
+library(BiocParallel)
+
+
+ncores <- 20
+register(MulticoreParam(workers=ncores))
+
+
+
+datdir <- "/home/data/refined/microbiome2brain/microbiome" 
+
+sample.names <- list.dirs("/home/data/refined/microbiome2brain/microbiome/01-trimmed", recursive = FALSE, full.names = FALSE)
+
+metabat.dir <- file.path(datdir, "03-metabat") 
+
+
+```
+
+## Create metabat output folders
+```{r}
+
+lapply(sample.names, function(x){
+  direct <- file.path(metabat.dir, x)
+  if(!file.exists(direct)){
+  dir.create(direct, showWarnings = FALSE) 
+}
+})
+
+
+```
+
+## Run metabat2 binning
+```{bash}
+conda activate microbiome
+bash ~/repositories/microbiome2brain/exp/exp04-binning/metabat.sh
+```
+
+## Clean bins from contaminant
+
+```{r}
+fbins <- list.files(metabat.dir,pattern = ".fa$", recursive = TRUE, full.names = TRUE)
+
+nameBins <- unlist(lapply(strsplit(fbins, "/"), "[", 10))
+nameBins <- gsub(".fa", "", nameBins)
+
+sn <- unlist(lapply(strsplit(fbins, "/"), "[", 8))
+
+output <- file.path(dirname(dirname(fbins)), "magpurify", nameBins)
+
+mag.table <- data.frame(fbins,
+                        output)
+
+write.table(mag.table,"../../data/mag.table.txt", sep="\t", quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+
+mag.table <- data.frame(fbins,
+                        output,
+                        paste(sn, nameBins, sep="_"))
+
+write.table(mag.table,"../../data/mag.table2.txt", sep="\t", quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+
+
+```{bash}
+conda activate coverm
+
+bash ~/repositories/microbiome2brain/exp/exp03-binning/magpurify_scripts/mag1.phylo.sh ~/repositories/microbiome2brain/data/mag.table.txt
+bash ~/repositories/microbiome2brain/exp/exp03-binning/magpurify_scripts/mag2.clade.sh ~/repositories/microbiome2brain/data/mag.table.txt
+bash ~/repositories/microbiome2brain/exp/exp03-binning/magpurify_scripts/mag3.tetra.sh ~/repositories/microbiome2brain/data/mag.table.txt
+bash ~/repositories/microbiome2brain/exp/exp03-binning/magpurify_scripts/mag4.gc.sh ~/repositories/microbiome2brain/data/mag.table.txt
+bash ~/repositories/microbiome2brain/exp/exp03-binning/magpurify_scripts/mag5.contam.sh ~/repositories/microbiome2brain/data/mag.table.txt
+bash ~/repositories/microbiome2brain/exp/exp03-binning/magpurify_scripts/mag6.clean.sh ~/repositories/microbiome2brain/data/mag.table2.txt
+
+
+```
+
+
+## Contigs assignments for each bin
+```{bash}
+conda deactivate
+
+/home/shared/tools/DAS_Tool-1.1.2/src/Fasta_to_Scaffolds2Bin.sh -i /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins -e fasta > /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/maxbin.scaffolds2bin.tsv
+
+```
+
+
+## Taxonomic annotations 
+
+Using BAT
+```{bash}
+conda activate checkm
+CAT bins -b /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins -d /home/shared/data/db/CAT_prepare_20200304/2020-03-04_CAT_database -t /home/shared/data/db/CAT_prepare_20200304/2020-03-04_taxonomy
+
+
+CAT add_names -i /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/CAT/out.BAT.ORF2LCA.txt -o /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/CAT/out.BAT.ORF2LCA.names.txt -t /home/shared/data/db/CAT_prepare_20200304/2020-03-04_taxonomy/
+    
+CAT add_names -i /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/CAT/out.BAT.bin2classification.txt -o /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/CAT/out.BAT.bin2classification.names.txt -t /home/shared/data/db/CAT_prepare_20200304/2020-03-04_taxonomy/
+
+```
+
+Using Kraken2
+
+```{bash}
+conda activate checkm
+
+bash ~/repositories/microbiome2brain/exp/exp03-binning/kraken2-bins.sh
+```
+
+
+Using phylophlan
+
+[PhyloPhlAn 3.0](https://www-nature-com.proxy3.library.mcgill.ca/articles/s41467-020-16366-7#Sec9) allows you to assign to each bin that comes from a metagenomic assembly analysis its closest species-level genome bins (SGBs, as defined in Pasolli, E et al. Cell (2019)).
+```{bash}
+conda activate phylophlan
+
+phylophlan_metagenomic -i /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins
+    --nproc 18 \
+    -e fna \
+    -d SGB.Dec19
+
+```
+
+```{r}
+phylo <- read.csv("/home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/cleaned_bins.tsv",
+                  stringsAsFactors = FALSE, sep = "\t", header = TRUE)
+bin2meta <- data.frame(bin=phylo$X.input_bin,
+                       sample=unlist(lapply(strsplit(phylo$X.input_bin, "_"), "[", 1)), 
+                       stringsAsFactors = FALSE)
+
+colnames(bin2meta) <- NULL
+write.table(bin2meta, "output/bin2meta.tsv", sep="\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+```
+
+```{bash}
+conda activate phylophlan
+
+phylophlan_draw_metagenomic -i /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/cleaned_bins.tsv \
+    -o /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/phylophlan_heatmap \
+    --map ~/repositories/microbiome2brain/exp/exp03-binning/output/bin2meta.tsv \
+    --top 20 \
+    --verbose 2>&1 | tee /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/phylophlan_draw_metagenomic.log
+```
+
+
+
+### dereplicate bins
+
+[dRep](https://www.nature.com/articles/ismej2017126) first filters incomplete bins (checkm completeness >= 75% and contamination <= 25% ) and then identifies groups of organisms that share similar DNA content in terms of Average Nucleotide Identity (ANI).
+
+```{bash}
+conda activate drep
+
+dRep dereplicate /home/data/refined/microbiome2brain/microbiome/03-metabat/drep_bins -g /home/data/refined/microbiome2brain/microbiome/03-metabat/cleaned_bins/*.fna
+```
+
+```{r}
+derep.bins <- list.files(file.path(metabat.dir, "drep_bins/dereplicated_genomes"), pattern = ".fna")
+
+
+```
+
+```{bash}
+bash ~/repositories/microbiome2brain/exp/exp03-binning/coverm_bins.sh
+```
+
+```{bash}
+conda activate phylophlan
+
+phylophlan_metagenomic -i /home/data/refined/microbiome2brain/microbiome/03-metabat/drep_bins/dereplicated_genomes \
+    -o /home/data/refined/microbiome2brain/microbiome/03-metabat/drep_bins/drep_phylophlan_metagenomic \
+    --nproc 18 \
+    -e fna \
+    -n 1 \
+    -d SGB.Dec19 \
+    --verbose 2>&1 | tee /home/data/refined/microbiome2brain/microbiome/03-metabat/drep_bins/logs/phylophlan_metagenomic.log
+```
+
+
+

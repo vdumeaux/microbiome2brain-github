@@ -1,0 +1,239 @@
+---
+title: "kraken2phyloseq"
+author: "Vanessa Dumeaux"
+date: "9/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+
+source("../../src/functions.R")
+source("../../src/utilities.R")
+
+pdata <- readRDS("../../data/metadata.rds")
+
+```
+# Plot reads histograms
+```{r}
+p00 <- ggplot(data = pdata, aes(x=participant, y=nreads, fill = timepoint)) +
+  geom_bar(stat = "identity", position=position_dodge()) +
+  scale_fill_manual(values =  c("#D55E0050", "#0072B250")) +
+  scale_y_continuous(labels = function(x) x/1e6) +
+  geom_hline(yintercept=20e6, linetype="dashed") +
+  xlab("Participant") + ylab("# reads (millions)") +
+  theme_minimal()
+
+
+ggsave("output/nreads.pdf", p00, units = "cm", width = 10, height = 10)
+```
+
+# make taxa table and compute RA - save in `mytree`
+```{r}
+
+# load("/home/data/refined/microbiome2brain/microbiome/R/tree_1.1.RData")
+# kraken <- tree
+# 
+# tree.ranks <- as.character(unique(tree$rank))
+# tree[tree.ranks] <- NA
+# 
+# for (i in tree$tax_id){
+#    my.path2root(i,i)
+#  }
+# 
+# est <- colnames(tree)[grep("_est", colnames(tree))]
+# global_frequencies(1, est)
+# 
+# tree[1:10,]
+# 
+# saveRDS(tree, "/home/data/refined/microbiome2brain/microbiome/R/mytree_1.1.rds")
+```
+
+# Extract taxa table
+```{r}
+tree <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/mytree_1.1.rds")
+
+
+tree.ranks <- as.character(unique(tree$rank))
+tax <- tree[, colnames(tree) %in% tree.ranks]
+rownames(tax) <- tree$tax_id
+
+tax <- tax[, c("no rank", "superkingdom", "phylum", "class", "order","family", "genus", "species", "species group")]
+
+
+```
+ 
+## Make phyloseq object with count and select taxa `rownSum(count) > 0`
+```{r}
+
+kraken.df <- tree[, grep("_est$", colnames(tree))]
+colnames(kraken.df) <- gsub("_est$", "", colnames(kraken.df))
+colnames(kraken.df) <- rownames(pdata)[match(pdata$sampleID, colnames(kraken.df))] # rename colnames
+rownames(kraken.df) <- rownames(tax)
+
+kraken_count <- phyloseq(
+  otu_table(as.matrix(kraken.df), taxa_are_rows=TRUE),
+  tax_table(as.matrix(tax)),
+  sample_data(pdata))
+
+myTaxa = names(taxa_sums(kraken_count)[taxa_sums(kraken_count)>0]) # select taxa with counts >0
+kraken_count = prune_taxa(myTaxa, kraken_count)
+
+saveRDS(kraken_count, "/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+
+
+
+```
+
+
+# Download data and add phylogenetic tree
+```{r}
+kraken_count <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count.rds")
+
+kraken_count_spec <- tax_glom(kraken_count, "species")
+
+
+taxid <- paste0(rownames(otu_table(kraken_count_spec)), collapse = ",")
+
+fileConn<-file("output/taxid_spec.txt")
+writeLines(taxid, fileConn)
+close(fileConn)
+
+
+# build tree with phyloT https://phylot.biobyte.de/ (I had to pay but now I have 50 tree tokens)
+
+tree2 <- read_tree("/home/data/refined/microbiome2brain/microbiome/R/phytree_count_spec_final")
+tree2$edge.length <- ape::compute.brlen( tree2, 1 )$edge.length
+plot(tree2)
+out.group <- pick_new_outgroup(tree2)
+out.group
+tax_table(kraken_count_spec)[out.group,]
+new.tree <- ape::root(tree2, outgroup=out.group, resolve.root = TRUE)
+plot(new.tree)
+
+
+phy_tree(kraken_count_spec) <- new.tree
+phy_tree(kraken_count_spec)
+
+
+```
+
+# Add top family
+
+```{r}
+kraken_ra_spec <-  microbiome::transform(kraken_count_spec, "compositional")
+top <- prune_taxa(names(sort(taxa_sums(kraken_ra_spec), decreasing = TRUE)[1:50]), kraken_ra_spec)
+fam10 <- tax_table(top)[,"family"]
+
+topfam <- unique(as.character(fam10[,1]))
+topfam <- topfam[!is.na(topfam)]
+
+
+tax.spec <- as.data.frame(as(tax_table(kraken_ra_spec), "matrix"), stringsAsFactors = FALSE)
+tax.spec$family2 <- ifelse(tax.spec$family %in% topfam, tax.spec$family, "Other")
+
+tax_table(kraken_count_spec) <- as.matrix(tax.spec)[, c(1:5, 10, 6:9)]
+
+
+saveRDS(kraken_count_spec, "/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+```
+
+## add CV
+```{r}
+
+p0 <- my_plot_taxa_cv(kraken_count_spec, plot.type = "scatter")
+tax_table(kraken_count_spec) <- as.matrix(p0$cvdf)
+
+
+kraken_count_spec0 <- subset_samples(kraken_count_spec, timepoint == "A")
+p1 <- my_plot_taxa_cv(kraken_count_spec0, plot.type = "scatter")
+cva <- as.matrix(p1$cvdf)
+dimnames(cva)[[2]][12] <- "CVA"
+tax_table(kraken_count_spec) <- cbind(tax_table(kraken_count_spec), cva[, 12, drop = FALSE])
+
+
+kraken_count_spec1 <- subset_samples(kraken_count_spec, timepoint == "B")
+p2 <- my_plot_taxa_cv(kraken_count_spec1, plot.type = "scatter")
+cvb <- as.matrix(p2$cvdf)
+dimnames(cvb)[[2]][13] <- "CVB"
+tax_table(kraken_count_spec) <- cbind(tax_table(kraken_count_spec), cvb[, 13, drop = FALSE])
+
+saveRDS(kraken_count_spec, "/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+```
+# genus to code for enterotype
+
+```{r}
+library(dplyr)
+library(phyloseq)
+kraken_count_spec <- readRDS("/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+kraken_count_gen <- tax_glom(kraken_count_spec, "genus")
+
+kraken_ra_gen <-  microbiome::transform(kraken_count_gen, "compositional")
+
+ra_genus <- as(otu_table(kraken_ra_gen), "matrix")
+rownames(ra_genus) <- tax_table(kraken_ra_gen)[,"genus"]
+
+ra_genus <- as.data.frame(ra_genus, stringsAsFactors = FALSE) %>%
+  tibble::rownames_to_column("GENUS") %>%
+  tidyr::separate("GENUS", into=c("GENUS1", "GENUS2"), sep=" |\\.", extra = "merge") %>%
+  mutate(GENUS=ifelse(is.na(GENUS2), GENUS1, GENUS2)) %>%
+  dplyr::select(-c(GENUS1, GENUS2)) %>%
+  relocate(GENUS)
+
+write.table(ra_genus, "output/ra_genus.txt", quote = FALSE, sep = "\t", row.names = FALSE)
+
+## get enterotype from http://enterotypes.org/
+## all profiles look different from METAHIT and HMP
+## output below
+
+enterotype <- c(E1A = "ET_Prevotella", E1B = "ET_Prevotella",
+                E2A = "ET_Bacteroides", E2B = "ET_Bacteroides",
+                E3A = "ET_Bacteroides", E3B = "ET_Bacteroides",
+                E4A = "ET_Bacteroides", E4B = "ET_Bacteroides",
+                E5A = "ET_Firmicutes", E5B = "ET_Bacteroides",
+                F1A = "ET_Prevotella", F1B = "ET_Prevotella",
+                F2A = "ET_Bacteroides", F2B = "ET_Firmicutes")
+
+sample_data(kraken_count_spec)$enterotype <-  enterotype[sample_data(kraken_count_spec)$sampleID]
+
+saveRDS(kraken_count_spec, "/home/data/refined/microbiome2brain/microbiome/R/kraken_count_spec.rds")
+
+```
+
+
+
+# Rarefied
+```{r}
+ps.rarefied.spec <- rarefy_even_depth(kraken_count_spec, sample.size=0.9*min(sample_sums(kraken_count_spec)), replace=F, rngseed = 1)
+
+saveRDS(ps.rarefied.spec, "/home/data/refined/microbiome2brain/microbiome/R/ps.rarefied.spec.rds")
+
+```
+
+
+## Make phyloseq object with relative abundance and select taxa `rownSum(count) > 0`
+```{r}
+# kraken.df <- tree[, grep("_est.freq.global", colnames(tree))]
+# kraken.df <- kraken.df*100 # make percentage
+# colnames(kraken.df) <- gsub("_est.freq.global", "", colnames(kraken.df))
+# colnames(kraken.df) <- rownames(pdata)[match(pdata$sampleID, colnames(kraken.df))] #reorder to match sample table
+# rownames(kraken.df) <- rownames(tax)
+# 
+# kraken.df <- kraken.df[-1, ]
+# 
+# kraken_ra = phyloseq(
+#   otu_table(as.matrix(kraken.df), taxa_are_rows=TRUE),
+#   tax_table(as.matrix(tax[-1, ])),
+#   sample_data(pdata))
+# 
+# kraken_ra = prune_taxa(myTaxa, kraken_ra) # select taxa with counts > 0
+# saveRDS(kraken_ra, "/home/data/refined/microbiome2brain/microbiome/R/kraken_ra.rds")
+
+```
+

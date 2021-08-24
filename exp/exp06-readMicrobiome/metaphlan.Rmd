@@ -1,0 +1,68 @@
+---
+title: "metaphlan"
+author: "Vanessa Dumeaux"
+date: "6/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(R.utils)
+library(BiocParallel)
+
+source("../../src/preprocessing.R")
+
+ncores <- 24
+register(MulticoreParam(workers=ncores))
+
+
+
+trimmed <- "/home/data/refined/microbiome2brain/microbiome/01-trimmed"
+sn <- list.dirs(trimmed, full.names = FALSE, recursive = FALSE)
+sn <- sn[-grep("metaphlan", sn)]
+
+bplapply(sn, interleave.fastq)
+
+```
+
+## metaphlan
+```{bash}
+conda activate phylophlan
+
+bash ~/repositories/microbiome2brain/exp/exp06-readMicrobiome/metaphlan.sh
+bash ~/repositories/microbiome2brain/exp/exp06-readMicrobiome/metaphlan2.sh
+
+merge_metaphlan_tables.py /home/data/refined/microbiome2brain/microbiome/01-trimmed/metaphlan/*profiled_metagenome.txt > /home/data/refined/microbiome2brain/microbiome/01-trimmed/metaphlan/merged_abundance_table.txt
+
+```
+
+
+
+### Humann3
+
+```{bash}
+conda activate phylophlan
+# databases were downloaded in /home/shared/data/db/humann
+# update config accordingly 
+humann_config --update database_folders nucleotide /home/shared/data/db/humann/chocophlan
+humann_config --update database_folders protein /home/shared/data/db/humann/uniref
+humann_config --update database_folders utility_mapping /home/shared/data/db/humann/utility_mapping
+
+```
+
+```{bash}
+conda activate phylophlan
+
+bash ~/repositories/microbiome2brain/exp/exp06-readMicrobiome/humann3.sh
+bash ~/repositories/microbiome2brain/exp/exp06-readMicrobiome/rename-humann3.sh
+
+```
+```{bash}
+conda activate phylophlan
+humann_renorm_table --input /home/data/refined/microbiome2brain/microbiome/01-trimmed/humann/barcoded_pathabundance.tsv --output /home/data/refined/microbiome2brain/microbiome/01-trimmed/humann/barcoded_pathabundance-cpm.tsv --units cpm --update-snames
+```
+

@@ -1,0 +1,323 @@
+---
+title: "krsken2"
+author: "Vanessa Dumeaux"
+date: "5/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+kdb <- "/home/shared/data/db/kraken2_microbiome"
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-taxonomy -use-ftp --db", kdb)))
+
+```
+
+```{r}
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library plasmid -use-ftp --db", kdb)))
+
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library viral -use-ftp --db", kdb)))
+
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library protozoa -use-ftp --db", kdb)))
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library UniVec -use-ftp --db", kdb)))
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library bacteria -use-ftp --db", kdb)))
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library archaea -use-ftp --db", kdb)))
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library fungi -use-ftp --db", kdb)))
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library human -use-ftp --db", kdb)))
+
+system(capture.output(
+    cat("/home/data/analysis-tools/kraken/kraken2-build --download-library nt -use-ftp --db", kdb)))
+
+```
+
+### add microbiome databases
+
+```{r}
+system(capture.output(
+    cat("find /home/shared/data/db/gutMicrobiome/sgbMicrobiome/representatives -name '*.fa' -print0 | \
+        xargs -0 -I{} -n1 /home/data/analysis-tools/kraken/kraken2-build --add-to-library {} --db", kdb)
+))
+system(capture.output(
+    cat("find /home/shared/data/db/gutMicrobiome -name '*.fna.gz' -print0 | \
+        xargs -0 -I{} -n1 /home/data/analysis-tools/kraken/kraken2-build --add-to-library {} --db", kdb)
+))
+
+```
+
+```{r}
+system(capture.output(cat("/home/data/analysis-tools/kraken/kraken2-build --build --threads=48 --db", kdb)))
+
+system(capture.output(cat("/home/data/analysis-tools/kraken/kraken2-inspect --db",kdb, "| head -20")))
+```
+
+```{bash}
+bash ~/repositories/microbiome2brain/exp/exp01-preprocessing/kraken2-reads.sh
+```
+
+```{r}
+system(capture.output(
+                      cat("/home/data/analysis-tools/Bracken/bracken-build -t 48 -k 35 -l 150 -d", kdb, "-x /home/data/analysis-tools/kraken/" )
+                      ))
+
+```
+
+
+# Running Kraken Reports in Bracken 
+
+```{r}
+
+library(R.utils)
+library(BiocParallel)
+
+source("../../src/preprocessing.R")
+
+ncores <- 24
+register(MulticoreParam(workers=ncores))
+
+sn <- list.dirs("/home/data/refined/microbiome2brain/microbiome/01-trimmed", full.names = FALSE, recursive = FALSE)
+
+bplapply(sn, bracken)
+```
+
+
+PROGRAM START TIME: 06-15-2020 01:47:13
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E1A_B1/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 15987 
+	  >> Number of species with reads > threshold: 7504 
+	  >> Number of species with reads < threshold: 8483 
+    >>> Total reads in sample: 29316385
+	  >> Total reads kept at species level (reads > threshold): 16993226
+	  >> Total reads discarded (species reads < threshold): 18789
+	  >> Reads distributed: 7964327
+	  >> Reads not distributed (eg. no species above threshold): 4737
+	  >> Unclassified reads: 4335307
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E1A_B1/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:21
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:14
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E1B_B2/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 15528 
+	  >> Number of species with reads > threshold: 7303 
+	  >> Number of species with reads < threshold: 8225 
+    >>> Total reads in sample: 25145154
+	  >> Total reads kept at species level (reads > threshold): 16005416
+	  >> Total reads discarded (species reads < threshold): 18478
+	  >> Reads distributed: 5223673
+	  >> Reads not distributed (eg. no species above threshold): 4352
+	  >> Unclassified reads: 3893235
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E1B_B2/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:22
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:14
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E2A_A3/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 17473 
+	  >> Number of species with reads > threshold: 7890 
+	  >> Number of species with reads < threshold: 9583 
+    >>> Total reads in sample: 30821677
+	  >> Total reads kept at species level (reads > threshold): 17651055
+	  >> Total reads discarded (species reads < threshold): 19784
+	  >> Reads distributed: 8631100
+	  >> Reads not distributed (eg. no species above threshold): 3672
+	  >> Unclassified reads: 4516066
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E2A_A3/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:22
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:15
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E2B_A4/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 13676 
+	  >> Number of species with reads > threshold: 6531 
+	  >> Number of species with reads < threshold: 7145 
+    >>> Total reads in sample: 12512281
+	  >> Total reads kept at species level (reads > threshold): 7278937
+	  >> Total reads discarded (species reads < threshold): 17100
+	  >> Reads distributed: 3545067
+	  >> Reads not distributed (eg. no species above threshold): 2532
+	  >> Unclassified reads: 1668646
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E2B_A4/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:22
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:15
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E3A_A5/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 17167 
+	  >> Number of species with reads > threshold: 7453 
+	  >> Number of species with reads < threshold: 9714 
+    >>> Total reads in sample: 39605876
+	  >> Total reads kept at species level (reads > threshold): 23946548
+	  >> Total reads discarded (species reads < threshold): 20069
+	  >> Reads distributed: 10154433
+	  >> Reads not distributed (eg. no species above threshold): 9090
+	  >> Unclassified reads: 5475736
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E3A_A5/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:23
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:15
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E3B_A6/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 15956 
+	  >> Number of species with reads > threshold: 7169 
+	  >> Number of species with reads < threshold: 8787 
+    >>> Total reads in sample: 35345169
+	  >> Total reads kept at species level (reads > threshold): 21551109
+	  >> Total reads discarded (species reads < threshold): 18327
+	  >> Reads distributed: 10207733
+	  >> Reads not distributed (eg. no species above threshold): 4866
+	  >> Unclassified reads: 3563135
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E3B_A6/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:24
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:16
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E4A_A7/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 13745 
+	  >> Number of species with reads > threshold: 5892 
+	  >> Number of species with reads < threshold: 7853 
+    >>> Total reads in sample: 32508399
+	  >> Total reads kept at species level (reads > threshold): 20518894
+	  >> Total reads discarded (species reads < threshold): 19716
+	  >> Reads distributed: 10237296
+	  >> Reads not distributed (eg. no species above threshold): 3288
+	  >> Unclassified reads: 1729205
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E4A_A7/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:24
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:17
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E4B_A8/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 15365 
+	  >> Number of species with reads > threshold: 6821 
+	  >> Number of species with reads < threshold: 8544 
+    >>> Total reads in sample: 44316027
+	  >> Total reads kept at species level (reads > threshold): 28494524
+	  >> Total reads discarded (species reads < threshold): 18783
+	  >> Reads distributed: 12999308
+	  >> Reads not distributed (eg. no species above threshold): 4172
+	  >> Unclassified reads: 2799240
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E4B_A8/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:25
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:17
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E5A_B3/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 14129 
+	  >> Number of species with reads > threshold: 6627 
+	  >> Number of species with reads < threshold: 7502 
+    >>> Total reads in sample: 27129895
+	  >> Total reads kept at species level (reads > threshold): 16882975
+	  >> Total reads discarded (species reads < threshold): 18165
+	  >> Reads distributed: 6304020
+	  >> Reads not distributed (eg. no species above threshold): 3495
+	  >> Unclassified reads: 3921240
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E5A_B3/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:25
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:18
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E5B_B4/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 13644 
+	  >> Number of species with reads > threshold: 6448 
+	  >> Number of species with reads < threshold: 7196 
+    >>> Total reads in sample: 29439361
+	  >> Total reads kept at species level (reads > threshold): 18874712
+	  >> Total reads discarded (species reads < threshold): 17816
+	  >> Reads distributed: 7369578
+	  >> Reads not distributed (eg. no species above threshold): 3649
+	  >> Unclassified reads: 3173606
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/E5B_B4/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:26
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:18
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F1A_A1/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 18266 
+	  >> Number of species with reads > threshold: 7972 
+	  >> Number of species with reads < threshold: 10294 
+    >>> Total reads in sample: 30081018
+	  >> Total reads kept at species level (reads > threshold): 20730642
+	  >> Total reads discarded (species reads < threshold): 20935
+	  >> Reads distributed: 4350114
+	  >> Reads not distributed (eg. no species above threshold): 4713
+	  >> Unclassified reads: 4974614
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F1A_A1/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:26
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:18
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F1B_A2/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 17525 
+	  >> Number of species with reads > threshold: 7732 
+	  >> Number of species with reads < threshold: 9793 
+    >>> Total reads in sample: 24880463
+	  >> Total reads kept at species level (reads > threshold): 16994177
+	  >> Total reads discarded (species reads < threshold): 20251
+	  >> Reads distributed: 3748913
+	  >> Reads not distributed (eg. no species above threshold): 4803
+	  >> Unclassified reads: 4112319
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F1B_A2/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:26
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:19
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F2A_B5/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 14654 
+	  >> Number of species with reads > threshold: 6903 
+	  >> Number of species with reads < threshold: 7751 
+    >>> Total reads in sample: 30237955
+	  >> Total reads kept at species level (reads > threshold): 15244345
+	  >> Total reads discarded (species reads < threshold): 17600
+	  >> Reads distributed: 11374175
+	  >> Reads not distributed (eg. no species above threshold): 3470
+	  >> Unclassified reads: 3598365
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F2A_B5/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:27
+  Bracken complete.
+PROGRAM START TIME: 06-15-2020 01:47:19
+BRACKEN SUMMARY (Kraken report: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F2B_B6/reads.kreport)
+    >>> Threshold: 10 
+    >>> Number of species in sample: 14157 
+	  >> Number of species with reads > threshold: 6839 
+	  >> Number of species with reads < threshold: 7318 
+    >>> Total reads in sample: 27095464
+	  >> Total reads kept at species level (reads > threshold): 15454471
+	  >> Total reads discarded (species reads < threshold): 17465
+	  >> Reads distributed: 8314827
+	  >> Reads not distributed (eg. no species above threshold): 3094
+	  >> Unclassified reads: 3305607
+BRACKEN OUTPUT PRODUCED: /home/data/refined/microbiome2brain/microbiome/01-trimmed/F2B_B6/reads.bracken
+PROGRAM END TIME: 06-15-2020 01:47:27
+  Bracken complete.
+
+
+
+### Run kraken2 on contigs
+```{bash}
+bash ~/repositories/microbiome2brain/exp/exp01-preprocessing/kraken2-contigs.sh
+```
+
+```{bash}
+bash ~/repositories/microbiome2brain/exp01-preprocessing/krona.sh
+```
+
